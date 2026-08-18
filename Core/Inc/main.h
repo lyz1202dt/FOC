@@ -57,8 +57,46 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define SPI3_CS_Pin GPIO_PIN_6
-#define SPI3_CS_GPIO_Port GPIOB
+#define IC_FAULT_Pin GPIO_PIN_14
+#define IC_FAULT_GPIO_Port GPIOC
+#define EN_GATE_Pin GPIO_PIN_15
+#define EN_GATE_GPIO_Port GPIOC
+#define L2_ADC_Pin GPIO_PIN_0
+#define L2_ADC_GPIO_Port GPIOA
+#define L3_ADC_Pin GPIO_PIN_1
+#define L3_ADC_GPIO_Port GPIOA
+#define DCBUS_ADC_Pin GPIO_PIN_2
+#define DCBUS_ADC_GPIO_Port GPIOA
+#define DC_CAL_Pin GPIO_PIN_3
+#define DC_CAL_GPIO_Port GPIOA
+#define IC_SPI_CS_Pin GPIO_PIN_4
+#define IC_SPI_CS_GPIO_Port GPIOA
+#define IC_SPI_SCK_Pin GPIO_PIN_5
+#define IC_SPI_SCK_GPIO_Port GPIOA
+#define IC_SPI_MISO_Pin GPIO_PIN_6
+#define IC_SPI_MISO_GPIO_Port GPIOA
+#define IC_SPI_MOSI_Pin GPIO_PIN_7
+#define IC_SPI_MOSI_GPIO_Port GPIOA
+#define HALL_A_Pin GPIO_PIN_0
+#define HALL_A_GPIO_Port GPIOB
+#define HALL_B_Pin GPIO_PIN_1
+#define HALL_B_GPIO_Port GPIOB
+#define HALL_C_Pin GPIO_PIN_2
+#define HALL_C_GPIO_Port GPIOB
+#define LED_GREEN_Pin GPIO_PIN_12
+#define LED_GREEN_GPIO_Port GPIOB
+#define SENSOR_I2C_SCL_Pin GPIO_PIN_15
+#define SENSOR_I2C_SCL_GPIO_Port GPIOA
+#define SENSOR_SPI_SCK_Pin GPIO_PIN_3
+#define SENSOR_SPI_SCK_GPIO_Port GPIOB
+#define SENSOR_SPI_MISO_Pin GPIO_PIN_4
+#define SENSOR_SPI_MISO_GPIO_Port GPIOB
+#define SENSOR_SPI_MOSI_Pin GPIO_PIN_5
+#define SENSOR_SPI_MOSI_GPIO_Port GPIOB
+#define SENSOR_SPI_CS_Pin GPIO_PIN_6
+#define SENSOR_SPI_CS_GPIO_Port GPIOB
+#define SENSOR_I2C_SDA_Pin GPIO_PIN_7
+#define SENSOR_I2C_SDA_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 

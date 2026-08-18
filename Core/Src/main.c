@@ -102,7 +102,7 @@ int main(void)
   MX_SPI3_Init();
   MX_TIM1_Init();
   MX_USART3_UART_Init();
-  MX_TIM6_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
