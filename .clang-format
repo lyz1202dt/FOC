@@ -12,9 +12,7 @@ Standard: c++20
 MaxEmptyLinesToKeep: 4
 
 AlignAfterOpenBracket: AlwaysBreak
-
 AlignArrayOfStructures: Right
-
 AlignConsecutiveAssignments:
     Enabled: true
     AcrossEmptyLines: false
@@ -42,8 +40,14 @@ PointerAlignment: Left
 
 AllowAllArgumentsOnNextLine: true
 AllowAllParametersOfDeclarationOnNextLine: true
-AllowShortBlocksOnASingleLine: Empty
-AllowShortCaseLabelsOnASingleLine: true
+
+# ===== 修改以下三项 =====
+AllowShortBlocksOnASingleLine: Never      # 禁止任何块（if/for/while等）单行
+AllowShortFunctionsOnASingleLine: None    # 禁止函数体单行
+AllowShortLambdasOnASingleLine: None      # 禁止 lambda 体单行
+# ========================
+
+AllowShortCaseLabelsOnASingleLine: true   # 可保留，case 标签本身不是大括号块
 
 IndentPPDirectives: AfterHash
 PPIndentWidth: 1
