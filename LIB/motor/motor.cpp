@@ -3,19 +3,34 @@
 
 
 Motor::Motor() {
+
+}
+
+bool Motor::init() {
     driver->init();
     driver->set_enable(true);
-    uint64_t start_time=BSP::get_time_us();
-    while(BSP::get_time_us()-start_time<10000)
-    {
-        if(driver->is_ready())
+    uint64_t start_time = BSP::get_time_us();
+    while (BSP::get_time_us() - start_time < 10000) {
+        if (driver->is_ready())
             break;
         vTaskDelay(1);
     }
+    if(BSP::get_time_us() - start_time < 10000)
+        return true;
+    return false;
+}
+
+bool Motor::is_ready()const 
+{
+    return motor_is_ready;
+}
+
+bool Motor::is_sensorless_mode() const{
+    return sensor_less_mode;
 }
 
 bool Motor::update() {
-    if (!driver->is_ready())     //驱动器不可用，退出
+    if (!driver->is_ready()) // 驱动器不可用，退出
         return false;
 
     float vbus_vol;

@@ -63,7 +63,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${USER_HPP_SOURCES}
 )
 
-set_source_files_properties(Task/app_main.c PROPERTIES LANGUAGE CXX)
+set_source_files_properties(Task/app_main.cpp PROPERTIES LANGUAGE CXX)
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
