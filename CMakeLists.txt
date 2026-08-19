@@ -58,12 +58,12 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
-    Task/app_main.c
+    Task/app_main.cpp
     ${USER_CPP_SOURCES}
     ${USER_HPP_SOURCES}
 )
 
-set_source_files_properties(Task/app_main.cpp PROPERTIES LANGUAGE CXX)
+set_source_files_properties(Core/Src/app_freertos.c PROPERTIES LANGUAGE CXX)
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

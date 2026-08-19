@@ -1,5 +1,5 @@
 #include "encoder.hpp"
-#include "../BSP/hardware.hpp"
+#include "hardware.hpp"
 
 Encoder::Encoder()
 {

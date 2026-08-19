@@ -1,5 +1,5 @@
 #include "motor.hpp"
-#include "../BSP/hardware.hpp"
+#include "hardware.hpp"
 #include "as5600.hpp"
 
 

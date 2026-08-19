@@ -21,8 +21,10 @@ public:
 
     MotorDriver();
     virtual bool init() {                                              // 驱动器初始化
+        return true;
     }
     virtual bool is_ready() {                                          // 驱动器进入正常工作状态
+        return false;
     }
     virtual bool set_enable(bool enable = true) {                      // 开关驱动器功能
         return true;

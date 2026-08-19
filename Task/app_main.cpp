@@ -1,11 +1,10 @@
 #include "app_main.hpp"
 #include "hardware.hpp"
-#include "stm32g4xx_hal_tim.h"
 #include "tim.h"
 
 Motor motor;
 
-void app_main(void* param) {
+extern "C" void app_main(void* param) {
     BSP::time_init();
     bool success = motor.init();
     if (!success) {

@@ -4,24 +4,12 @@
 
 namespace BSP {
 
-enum IQRType{
-    TIM1_UPDATE,
-    ADC1_INJEC,
-    ADC2_INJEC,
-    SPI1_RTX,
-    SPI3_RTX,
-    I2C1_MemRX,
-    I2C1_MemTX,
-};
+class I2CBus;
+class SPIBus;
 
-typedef void(*Func)(void* ctx);
-
-struct IRQFunc{
-    Func func;
-    void* ctx;
-};
-
-void bind_irq_func(IQRType type, Func func, void* ctx);
+I2CBus& i2c1_bus();
+SPIBus& spi1_bus();
+SPIBus& spi3_bus();
 
 void time_init();
 uint32_t get_time_us();

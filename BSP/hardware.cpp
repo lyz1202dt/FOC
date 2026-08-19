@@ -1,17 +1,36 @@
 #include "hardware.hpp"
-#include "motor.hpp"
-#include "stm32g431xx.h"
+#include "I2CBus.hpp"
+#include "SPIBus.hpp"
+#include "driver.hpp"
+#include "i2c.h"
+#include "spi.h"
 #include "tim.h"
+
+#include "motor.hpp"
 
 extern Motor motor;
 
 namespace BSP {
 
-// 可注册中断回调
-IRQFunc kIrqFuncTab[7];
-void bind_irq_func(IQRType type, Func func, void* ctx){
-    kIrqFuncTab[type].func=func;
-    kIrqFuncTab[type].ctx=ctx;
+
+namespace {
+
+I2CBus g_i2c1_bus(&hi2c1);
+SPIBus g_spi1_bus(&hspi1, IC_SPI_CS_GPIO_Port, IC_SPI_CS_Pin);
+SPIBus g_spi3_bus(&hspi3, SENSOR_SPI_CS_GPIO_Port, SENSOR_SPI_CS_Pin);
+
+} // namespace
+
+I2CBus& i2c1_bus() {
+    return g_i2c1_bus;
+}
+
+SPIBus& spi1_bus() {
+    return g_spi1_bus;
+}
+
+SPIBus& spi3_bus() {
+    return g_spi3_bus;
 }
 
 // 高精度时钟
@@ -27,11 +46,18 @@ uint32_t get_time_us() {
 }
 
 extern "C" {
+void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi);
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi);
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef* hi2c);
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef* hi2c);
+void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef* hi2c);
+void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef* hi2c);
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c);
+
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     TIM_TypeDef* instance = htim->Instance;
     if (instance == TIM1) {
-        if (kIrqFuncTab[TIM1_UPDATE].func)
-            kIrqFuncTab[TIM1_UPDATE].func(kIrqFuncTab[TIM1_UPDATE].ctx);
+        motor.update();
     }
     if (instance == TIM7) {
         g_timer_update_cnt++;
@@ -47,13 +73,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) // 电流采样完成，�
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef* hadc) {
     ADC_TypeDef* instance = hadc->Instance;
     if (instance == ADC1) { // 注入通道，采集相电流和总线电压
-        if (kIrqFuncTab[ADC1_INJEC].func)
-            kIrqFuncTab[ADC1_INJEC].func(kIrqFuncTab[ADC1_INJEC].ctx);
-        if (kIrqFuncTab[ADC2_INJEC].func)
-            kIrqFuncTab[ADC2_INJEC].func(kIrqFuncTab[ADC2_INJEC].ctx);
-        // motor.driver->set_raw_adc_value(MotorDriver::PhraseB, instance->JDR1);
-        // motor.driver->set_raw_adc_value(MotorDriver::PhraseC, instance->JDR2);
-        // motor.driver->set_raw_adc_value(MotorDriver::DCBusVol, instance->JDR3);
+        motor.driver->set_raw_adc_value(MotorDriver::PhraseB, instance->JDR1);
+        motor.driver->set_raw_adc_value(MotorDriver::PhraseC, instance->JDR2);
+        motor.driver->set_raw_adc_value(MotorDriver::DCBusVol, instance->JDR3);
     }
 }
 
@@ -67,26 +89,57 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi) {
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi) {
     SPI_TypeDef* instance = hspi->Instance;
     if (instance == SPI3) {
-        if (kIrqFuncTab[SPI3_RTX].func)
-            kIrqFuncTab[SPI3_RTX].func(kIrqFuncTab[SPI3_RTX].ctx);
+        spi3_bus().on_transfer_complete(hspi);
     } else if (instance == SPI1) { // IC通信
-        if (kIrqFuncTab[SPI1_RTX].func)
-            kIrqFuncTab[SPI1_RTX].func(kIrqFuncTab[SPI1_RTX].ctx);
+        spi1_bus().on_transfer_complete(hspi);
     }
+}
+void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi) {
+    SPI_TypeDef* instance = hspi->Instance;
+    if (instance == SPI3) {
+        spi3_bus().on_error(hspi);
+    } else if (instance == SPI1) {
+        spi1_bus().on_error(hspi);
+    }
+}
+void HAL_SPI_AbortCpltCallback(SPI_HandleTypeDef* hspi) {
+    HAL_SPI_ErrorCallback(hspi);
 }
 
 // I2C传输完成中断
+void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef* hi2c) {
+    if (hi2c->Instance == I2C1) {
+        i2c1_bus().on_transfer_complete(hi2c);
+    }
+}
+
+void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef* hi2c) {
+    if (hi2c->Instance == I2C1) {
+        i2c1_bus().on_transfer_complete(hi2c);
+    }
+}
+
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        if (kIrqFuncTab[I2C1_MemRX].func)
-            kIrqFuncTab[I2C1_MemRX].func(kIrqFuncTab[I2C1_MemRX].ctx);
+        i2c1_bus().on_transfer_complete(hi2c);
     }
 }
 
 void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        if (kIrqFuncTab[I2C1_MemTX].func)
-            kIrqFuncTab[I2C1_MemTX].func(kIrqFuncTab[I2C1_MemTX].ctx);
+        i2c1_bus().on_transfer_complete(hi2c);
+    }
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c) {
+    if (hi2c->Instance == I2C1) {
+        i2c1_bus().on_error(hi2c);
+    }
+}
+
+void HAL_I2C_AbortCpltCallback(I2C_HandleTypeDef* hi2c) {
+    if (hi2c->Instance == I2C1) {
+        i2c1_bus().on_error(hi2c);
     }
 }
 

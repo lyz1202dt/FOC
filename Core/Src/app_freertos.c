@@ -54,6 +54,9 @@ osThreadId defaultTaskHandle;
 
 /* USER CODE END FunctionPrototypes */
 
+#ifdef __cplusplus
+extern "C" {
+#endif
 void StartDefaultTask(void const * argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
@@ -113,6 +116,10 @@ void StartDefaultTask(void const * argument)
   }
   /* USER CODE END StartDefaultTask */
 }
+
+#ifdef __cplusplus
+}
+#endif
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
