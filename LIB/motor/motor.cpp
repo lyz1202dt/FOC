@@ -1,5 +1,6 @@
 #include "motor.hpp"
 #include "../BSP/hardware.hpp"
+#include "as5600.hpp"
 
 
 Motor::Motor() {
@@ -7,17 +8,20 @@ Motor::Motor() {
 }
 
 bool Motor::init() {
-    driver->init();
-    driver->set_enable(true);
-    uint64_t start_time = BSP::get_time_us();
-    while (BSP::get_time_us() - start_time < 10000) {
-        if (driver->is_ready())
-            break;
-        vTaskDelay(1);
-    }
-    if(BSP::get_time_us() - start_time < 10000)
-        return true;
-    return false;
+    encoder=new AS5600();
+    //driver=new 
+    // driver->init();
+    // driver->set_enable(true);
+    // uint64_t start_time = BSP::get_time_us();
+    // while (BSP::get_time_us() - start_time < 10000) {
+    //     if (driver->is_ready())
+    //         break;
+    //     vTaskDelay(1);
+    // }
+    // if(BSP::get_time_us() - start_time < 10000)
+    //     return true;
+    // return false;
+    return true;
 }
 
 bool Motor::is_ready()const 

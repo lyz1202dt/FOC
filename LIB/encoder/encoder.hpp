@@ -9,7 +9,6 @@ public:
     Encoder();
     float get_value();                     //获取转子弧度
     bool value_is_available(const uint32_t &us);  //检查数值是否实时可用
-    virtual void sensor_update()=0;
 protected:
     void record_value(float rad);       //线程安全存储数值和时间戳
 private:
