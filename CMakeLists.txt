@@ -11,6 +11,9 @@ cmake_minimum_required(VERSION 3.22)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS ON)
 
 
 # Define the build type
@@ -37,6 +40,16 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
+file(GLOB_RECURSE USER_CPP_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/*.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/LIB/*.cpp
+)
+
+file(GLOB_RECURSE USER_HPP_SOURCES CONFIGURE_DEPENDS
+    ${CMAKE_CURRENT_SOURCE_DIR}/BSP/*.hpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/LIB/*.hpp
+)
+
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
@@ -46,12 +59,23 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Task/app_main.c
+    ${USER_CPP_SOURCES}
+    ${USER_HPP_SOURCES}
 )
+
+set_source_files_properties(Task/app_main.c PROPERTIES LANGUAGE CXX)
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     Task
+    BSP
+    LIB
+    LIB/controller
+    LIB/comm
+    LIB/encoder
+    LIB/motor
+    LIB/tools
 )
 
 # Add project symbols (macros)

@@ -1,13 +1,21 @@
 #pragma once
 
-#include "encoder.hpp"
+#include "../encoder/encoder.hpp"
+#include "../tools/drv8301.hpp"
+#include "../tools/measure.hpp"
+#include "../tools/svpwm.hpp"
+#include "../tools/flash.hpp"
 #include "comm.hpp"
 
 class Motor{
 public:
     Motor();
-    void update();  //在中断中调用
+    bool update();  //在中断中调用
 
 private:
-    
+    Encoder* encoder;
+    DRV8301 drv8301;
+    Flash &flash;
+    PhaseCurrentMeasure current_measure;
+    SVPWM svpwm;
 };

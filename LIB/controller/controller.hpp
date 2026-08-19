@@ -1,0 +1,12 @@
+#pragma once
+
+class Controller{
+    Controller();
+    virtual void set_measure(const float &c1,const float &c2,const float &c3,const float &rad,const float &vbus){};
+    virtual bool get_output(float &v1,float &v2,float &v3){
+        v1=0.0f;
+        v2=0.0f;
+        v3=0.0f;
+        return true;
+    };
+};

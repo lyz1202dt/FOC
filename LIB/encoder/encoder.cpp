@@ -1,18 +1,23 @@
-#pragma once
+#include "encoder.hpp"
+#include "../BSP/hardware.hpp"
 
-#include <tuple>
-#include "FreeRTOS.h"
-#include "semphr.h"
+Encoder::Encoder()
+{
 
-class Encoder {
-public:
-    Encoder();
-    float get_value();                     //获取存储的数值
-    bool value_is_available(uint32_t us);  //检查数值是否实时可用
-    virtual void sensor_update()=0;
-    virtual ~Encoder() = default;
-protected:
-    void record_value(float rad);       //线程安全存储数值和时间戳
-private:
-    uint32_t encoer_update_ms_;     //上一次编码器更新时间
-};
+}
+
+float Encoder::get_value()
+{
+    return rad;
+}
+
+bool Encoder::value_is_available(const uint32_t &us)
+{
+    return encoer_update_us_+us>=BSP::get_time_us();
+}
+
+void Encoder::record_value(float rad)
+{
+    this->rad=rad;
+    encoer_update_us_=BSP::get_time_us();
+}
