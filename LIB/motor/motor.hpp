@@ -1,9 +1,8 @@
 #pragma once
 
 #include "../encoder/encoder.hpp"
-#include "../tools/drv8301.hpp"
-#include "../tools/measure.hpp"
-#include "../tools/svpwm.hpp"
+#include "../controller/controller.hpp"
+#include "driver.hpp"
 #include "../tools/flash.hpp"
 #include "comm.hpp"
 
@@ -11,11 +10,10 @@ class Motor{
 public:
     Motor();
     bool update();  //在中断中调用
-
+    bool sensor_less_mode{false};
 private:
-    Encoder* encoder;
-    DRV8301 drv8301;
-    Flash &flash;
-    PhaseCurrentMeasure current_measure;
-    SVPWM svpwm;
+    Flash flash;            //闪存控制器，读写配置文件
+    Encoder* encoder;       //编码器控制器，获取编码器数据
+    MotorDriver* driver;    //电机驱动器，获取电流，输出电压
+    Controller* controller; //FOC控制器，输入电流和编码器状态，输出电压
 };

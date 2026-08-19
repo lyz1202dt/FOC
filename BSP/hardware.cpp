@@ -2,15 +2,12 @@
 #include "tim.h"
 #include "motor.hpp"
 
-extern Motor motor;
-
 namespace BSP {
 
 volatile uint32_t g_timer_update_cnt = 0U;
 
 void time_init() {
     HAL_TIM_Base_Start_IT(&htim7);      //开启时基
-
 }
 
 uint32_t get_time_us() {
