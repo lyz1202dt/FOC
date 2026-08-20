@@ -63,8 +63,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${USER_HPP_SOURCES}
 )
 
-set_source_files_properties(Core/Src/app_freertos.c PROPERTIES LANGUAGE CXX)
-
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths

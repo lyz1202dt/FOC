@@ -51,24 +51,19 @@ osThreadId defaultTaskHandle;
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
-#ifdef __cplusplus
-#define APP_FREERTOS_EXTERN_C extern "C"
-#else
-#define APP_FREERTOS_EXTERN_C
-#endif
 
 /* USER CODE END FunctionPrototypes */
 
-APP_FREERTOS_EXTERN_C void StartDefaultTask(void const * argument);
+void StartDefaultTask(void const * argument);
 
-APP_FREERTOS_EXTERN_C void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
+void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
 /**
   * @brief  FreeRTOS initialization
   * @param  None
   * @retval None
   */
-APP_FREERTOS_EXTERN_C void MX_FREERTOS_Init(void) {
+void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN Init */
 
   /* USER CODE END Init */
@@ -107,7 +102,7 @@ APP_FREERTOS_EXTERN_C void MX_FREERTOS_Init(void) {
   * @retval None
   */
 /* USER CODE END Header_StartDefaultTask */
-APP_FREERTOS_EXTERN_C void StartDefaultTask(void const * argument)
+void StartDefaultTask(void const * argument)
 {
   /* USER CODE BEGIN StartDefaultTask */
   /* Infinite loop */

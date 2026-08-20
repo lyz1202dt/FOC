@@ -2,15 +2,14 @@
 #define __APP_MAIN_H__
 
 
+#ifdef __cplusplus
+
 #include "../LIB/motor/motor.hpp"
 
 extern Motor motor;
 
-#ifdef __cplusplus
 extern "C" {
 #endif
-
-
 
 void app_main(void* param);
 
