@@ -92,7 +92,7 @@ bool DRV8301::config(float requested_gain, float* actual_gain) {
     if (regs_changed && state_ == State::Ready) {
         state_ = State::Uninitialized;
         enabled_ = false;
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         enable_gate_.write(false);
     }
 
@@ -107,7 +107,7 @@ bool DRV8301::init() {
     state_ = State::Uninitialized;
     enabled_ = false;
     last_fault_ = FaultType_NoFault;
-    set_output_zero();
+    svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
     dc_cal_.write(false);
     enable_gate_.write(false);
 
@@ -149,7 +149,7 @@ bool DRV8301::init() {
     if (fault != FaultType_NoFault) {
         state_ = State::Uninitialized;
         enabled_ = false;
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         last_fault_ = fault;
         return false;
     }
@@ -157,7 +157,7 @@ bool DRV8301::init() {
     if (!fault_.read()) {
         state_ = State::Uninitialized;
         enabled_ = false;
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         last_fault_ = FaultType_FAULT;
         return false;
     }
@@ -165,7 +165,7 @@ bool DRV8301::init() {
     if (!calibrate_current_offsets()) {
         state_ = State::Uninitialized;
         enabled_ = false;
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         last_fault_ = FaultType_CurrentSenseSaturation;
         return false;
     }
