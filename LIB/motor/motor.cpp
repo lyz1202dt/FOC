@@ -48,22 +48,21 @@ bool Motor::fast_loop() {
     }
 
     float dcbus_vol;
-    float current[3], voltage[3];
-    float estimatered_rad = 0.0f, measured_rad = 0.0f;
-    bool measured_rad_available = false;
+    float current[3];
+    float voltage[3]{last_voltage_[0], last_voltage_[1], last_voltage_[2]};
     if (!driver_.get_vbus_voltage(dcbus_vol) || !driver_.get_phrase_current(current[0], current[1], current[2])) {
         stop_output();
         return false;
     }
-    driver_.get_phrase_voltage(voltage[0], voltage[1], voltage[2]);
 
-    if (!sensorless_mode_)
-        estimater_.set_raw_rad(encoder_.get_value(), encoder_.value_is_available(2000));
-    else {
+    //估计器输入
+    estimater_.set_raw_rad(encoder_.get_value(), encoder_.value_is_available(2000));
+    if (sensorless_mode_){  //无感模式还要输入电压和电流
         estimater_.set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);
         estimater_.set_raw_cur(current[0], current[1], current[2]);
     }
 
+    float estimatered_rad = 0.0f;
     bool success = estimater_.update(estimatered_rad);
     if (!sensorless_mode_) {    //有感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
         if (!success) {
@@ -71,7 +70,6 @@ bool Motor::fast_loop() {
             return false;
         }
     }
-
 
     controller_.set_measure(current[0], current[1], current[2], dcbus_vol, estimatered_rad,success);
     if (!controller_.get_output(voltage[0], voltage[1], voltage[2])) {

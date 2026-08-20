@@ -31,7 +31,4 @@ public:
     virtual bool set_phrase_voltage(float v1, float v2, float v3) {    // 输出生成相电压
         return false;
     }
-    virtual bool get_phrase_voltage(float &v1, float &v2, float &v3) {    //获取当前相电压
-        return false;
-    }
 };
