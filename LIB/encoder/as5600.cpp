@@ -11,11 +11,19 @@ constexpr uint16_t kAs5600AngleRegister = 0x0Cu;
 } // namespace
 
 AS5600::AS5600() {
-    sensor_update();
 }
 
-void AS5600::sensor_update() {
-    BSP::sensor_i2c_bus().memory_read(
+bool AS5600::init() {
+    if (started_) {
+        return true;
+    }
+
+    started_ = sensor_update();
+    return started_;
+}
+
+bool AS5600::sensor_update() {
+    return BSP::sensor_i2c_bus().memory_read(
         kAs5600Address,
         kAs5600AngleRegister,
         BSP::I2CBus::MemoryAddressSize::Bits8,
@@ -33,5 +41,5 @@ void AS5600::on_read_complete(void* ctx, bool success) {
         self->record_value(angle * 3.14159265f * 2.0f / 4096.0f);
     }
 
-    self->sensor_update();
+    (void)self->sensor_update();
 }

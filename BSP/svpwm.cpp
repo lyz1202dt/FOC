@@ -29,13 +29,14 @@ bool SVPWM::init() {
 void SVPWM::load_config() {
 }
 
-void SVPWM::register_timer_update_cb(std::function<void(void)> func) {
-    timer_update_cb_ = std::move(func);
+void SVPWM::register_timer_update_cb(TimerUpdateCallback callback, void* context) {
+    timer_update_cb_ = callback;
+    timer_update_context_ = context;
 }
 
 void SVPWM::timer_irq() {
     if (timer_update_cb_) {
-        timer_update_cb_();
+        timer_update_cb_(timer_update_context_);
     }
 }
 

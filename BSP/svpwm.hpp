@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 
 #include "tim.h"
 
@@ -9,11 +8,13 @@ namespace BSP {
 
 class SVPWM {
 public:
+    using TimerUpdateCallback = void (*)(void* context);
+
     SVPWM(TIM_HandleTypeDef* timer, uint32_t channel_1, uint32_t channel_2, uint32_t channel_3);
 
     bool init();
     void load_config();
-    void register_timer_update_cb(std::function<void(void)> func);
+    void register_timer_update_cb(TimerUpdateCallback callback, void* context = nullptr);
     void set_voltage(float dc_bus, float v1, float v2, float v3);
 
     void timer_irq();
@@ -21,7 +22,8 @@ public:
 private:
     TIM_HandleTypeDef* timer_;
     uint32_t channels_[3];
-    std::function<void(void)> timer_update_cb_;
+    TimerUpdateCallback timer_update_cb_{nullptr};
+    void* timer_update_context_{nullptr};
 };
 
 } // namespace BSP

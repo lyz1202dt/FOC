@@ -1,12 +1,11 @@
 #include "motor.hpp"
-#include "hardware.hpp"
-#include "as5600.hpp"
-#include "drv8301.hpp"
-#include "foc.hpp"
 
-
-Motor::Motor() {
-
+Motor::Motor(Flash& flash, Encoder& encoder, MotorDriver& driver, Controller& controller, bool sensorless_mode)
+    : flash_(flash)
+    , encoder_(encoder)
+    , driver_(driver)
+    , controller_(controller)
+    , sensorless_mode_(sensorless_mode) {
 }
 
 bool Motor::init() {
@@ -14,26 +13,17 @@ bool Motor::init() {
         return true;
     }
 
-    if (!encoder) {
-        //TODO:之后根据Flash配置动态选择加载其它编码器
-        encoder = new AS5600();
-    }
-    if (!driver) {
-        driver = new DRV8301(BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(),
-                             BSP::drv8301_enable_gate(), BSP::drv8301_fault(), BSP::drv8301_dc_cal());
-    }
-    if (!controller) {
-        //TODO:之后根据Flash配置动态选择加载其它控制算法
-        controller = new FOC();
+    if (!sensorless_mode_ && !encoder_.init()) {
+        return false;
     }
 
-    if (!driver->init()) {
+    if (!driver_.init()) {
         return false;
     }
-    if (!driver->set_enable(true)) {
+    if (!driver_.set_enable(true)) {
         return false;
     }
-    motor_is_ready = driver->is_ready();
+    motor_is_ready = driver_.is_ready();
     return motor_is_ready;
 }
 
@@ -43,40 +33,46 @@ bool Motor::is_ready()const
 }
 
 bool Motor::is_sensorless_mode() const{
-    return sensor_less_mode;
+    return sensorless_mode_;
 }
 
-bool Motor::update() {
-    if (!motor_is_ready || !driver || !controller) {
+bool Motor::fast_loop() {
+    if (!motor_is_ready) {
         return false;
     }
 
-    if (!driver->is_ready()) // 驱动器不可用，退出
+    if (!driver_.is_ready()) { // 驱动器不可用，退出
+        motor_is_ready = false;
+        stop_output();
         return false;
+    }
 
     float vbus_vol;
     float current[3], voltage[3];
     float rad = 0.0f;
-    if (!driver->get_vbus_voltage(vbus_vol) ||
-        !driver->get_phrase_current(current[0], current[1], current[2])) {
-        driver->set_phrase_voltage(0.0f, 0.0f, 0.0f);
+    if (!driver_.get_vbus_voltage(vbus_vol) ||
+        !driver_.get_phrase_current(current[0], current[1], current[2])) {
+        stop_output();
         return false;
     }
-    if (!sensor_less_mode) {
-        if (!encoder->value_is_available(1000)) {
-            driver->set_phrase_voltage(0.0f, 0.0f, 0.0f);
+    if (!sensorless_mode_) {
+        if (!encoder_.get_value(rad, 1000)) {
+            stop_output();
             return false;
         }
-        rad = encoder->get_value();
     }
 
-    controller->set_measure(current[0], current[1], current[2], vbus_vol, rad);
-    if (!controller->get_output(voltage[0], voltage[1], voltage[2])) {
-        driver->set_phrase_voltage(0.0f, 0.0f, 0.0f);
+    controller_.set_measure(current[0], current[1], current[2], vbus_vol, rad);
+    if (!controller_.get_output(voltage[0], voltage[1], voltage[2])) {
+        stop_output();
         return false;
     }
-    if (!driver->set_phrase_voltage(voltage[0], voltage[1], voltage[2])) {
+    if (!driver_.set_phrase_voltage(voltage[0], voltage[1], voltage[2])) {
         return false;
     }
     return true;
+}
+
+void Motor::stop_output() {
+    driver_.set_phrase_voltage(0.0f, 0.0f, 0.0f);
 }

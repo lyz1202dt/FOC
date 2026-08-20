@@ -3,11 +3,6 @@
 
 
 #ifdef __cplusplus
-
-#include "../LIB/motor/motor.hpp"
-
-extern Motor motor;
-
 extern "C" {
 #endif
 
