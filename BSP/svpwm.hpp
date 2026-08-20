@@ -13,7 +13,7 @@ public:
 
     bool init();
     void load_config();
-    bool register_timer_update_cb(std::function<void(void)> func);
+    void register_timer_update_cb(std::function<void(void)> func);
     void set_voltage(float dc_bus, float v1, float v2, float v3);
 
     void timer_irq();

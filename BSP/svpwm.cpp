@@ -5,7 +5,8 @@
 namespace BSP {
 
 SVPWM::SVPWM(TIM_HandleTypeDef* timer, uint32_t channel_1, uint32_t channel_2, uint32_t channel_3)
-    : timer_(timer), channels_{channel_1, channel_2, channel_3} {
+    : timer_(timer)
+    , channels_{channel_1, channel_2, channel_3} {
 }
 
 bool SVPWM::init() {
@@ -28,14 +29,14 @@ bool SVPWM::init() {
 void SVPWM::load_config() {
 }
 
-bool SVPWM::register_timer_update_cb(std::function<void(void)> func)
-{
-    timer_update_cb_=func;
+void SVPWM::register_timer_update_cb(std::function<void(void)> func) {
+    timer_update_cb_ = std::move(func);
 }
 
-void SVPWM::timer_irq()
-{
-    timer_update_cb_();
+void SVPWM::timer_irq() {
+    if (timer_update_cb_) {
+        timer_update_cb_();
+    }
 }
 
 void SVPWM::set_voltage(float dc_bus, float v1, float v2, float v3) {
@@ -51,14 +52,14 @@ void SVPWM::set_voltage(float dc_bus, float v1, float v2, float v3) {
         return;
     }
 
-    const float max_v = std::max(v1, std::max(v2, v3));
-    const float min_v = std::min(v1, std::min(v2, v3));
+    const float max_v         = std::max(v1, std::max(v2, v3));
+    const float min_v         = std::min(v1, std::min(v2, v3));
     const float zero_sequence = 0.5f * (max_v + min_v);
-    const float period = static_cast<float>(__HAL_TIM_GET_AUTORELOAD(timer_));
+    const float period        = static_cast<float>(__HAL_TIM_GET_AUTORELOAD(timer_));
 
     const auto to_compare = [zero_sequence, dc_bus, period](float phase_voltage) -> uint32_t {
         float duty = 0.5f + (phase_voltage - zero_sequence) / dc_bus;
-        duty = std::clamp(duty, 0.0f, 1.0f);
+        duty       = std::clamp(duty, 0.0f, 1.0f);
         return static_cast<uint32_t>(duty * period);
     };
 

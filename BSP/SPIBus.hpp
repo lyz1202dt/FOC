@@ -16,12 +16,13 @@ public:
 
     explicit SPIBus(SPI_HandleTypeDef* handle, Gpio* default_cs = nullptr);
 
-    SPIBus(const SPIBus&) = delete;
+    SPIBus(const SPIBus&)            = delete;
     SPIBus& operator=(const SPIBus&) = delete;
 
-    bool transfer(const uint8_t* tx_data, uint8_t* rx_data, uint16_t length,
-                  Callback callback = nullptr, void* context = nullptr,
-                  Gpio* cs = nullptr);
+    bool init();
+    bool transfer(
+        const uint8_t* tx_data, uint8_t* rx_data, uint16_t length, Callback callback = nullptr, void* context = nullptr,
+        Gpio* cs = nullptr);
 
     void on_transfer_complete(SPI_HandleTypeDef* handle);
     void on_error(SPI_HandleTypeDef* handle);

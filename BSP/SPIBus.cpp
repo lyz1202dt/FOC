@@ -5,18 +5,24 @@
 namespace BSP {
 
 SPIBus::SPIBus(SPI_HandleTypeDef* handle, Gpio* default_cs)
-    : handle_(handle), default_cs_(default_cs) {}
+    : handle_(handle)
+    , default_cs_(default_cs) {
+}
 
-bool SPIBus::transfer(const uint8_t* tx_data, uint8_t* rx_data, uint16_t length,
-                      Callback callback, void* context,
-                      Gpio* cs) {
+
+bool SPIBus::init() {
+    return true;
+}
+
+
+bool SPIBus::transfer(const uint8_t* tx_data, uint8_t* rx_data, uint16_t length, Callback callback, void* context, Gpio* cs) {
     Transaction transaction{};
-    transaction.tx_data = tx_data;
-    transaction.rx_data = rx_data;
-    transaction.length = length;
-    transaction.cs = cs ? cs : default_cs_;
+    transaction.tx_data  = tx_data;
+    transaction.rx_data  = rx_data;
+    transaction.length   = length;
+    transaction.cs       = cs ? cs : default_cs_;
     transaction.callback = callback;
-    transaction.context = context;
+    transaction.context  = context;
     return enqueue(transaction);
 }
 
@@ -38,17 +44,17 @@ void SPIBus::on_error(SPI_HandleTypeDef* handle) {
 
 bool SPIBus::enqueue(const Transaction& transaction) {
     bool should_start = false;
-    bool accepted = false;
+    bool accepted     = false;
 
     __disable_irq();
     if (count_ < kTransactionCapacity) {
         queue_[tail_] = transaction;
-        tail_ = (tail_ + 1U) % kTransactionCapacity;
+        tail_         = (tail_ + 1U) % kTransactionCapacity;
         ++count_;
-        accepted = true;
+        accepted     = true;
         should_start = !active_;
         if (should_start) {
-            active_ = true;
+            active_             = true;
             active_transaction_ = queue_[head_];
         }
     }
@@ -70,10 +76,8 @@ void SPIBus::start_next() {
         active_transaction_.cs->write(false);
     }
 
-    HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(handle_,
-                                                           active_transaction_.tx_data,
-                                                           active_transaction_.rx_data,
-                                                           active_transaction_.length);
+    HAL_StatusTypeDef status =
+        HAL_SPI_TransmitReceive_IT(handle_, active_transaction_.tx_data, active_transaction_.rx_data, active_transaction_.length);
     if (status != HAL_OK) {
         complete_active(false);
     }

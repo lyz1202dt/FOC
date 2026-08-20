@@ -10,7 +10,7 @@ namespace BSP {
 class I2CBus {
 public:
     enum class MemoryAddressSize : uint16_t {
-        Bits8 = I2C_MEMADD_SIZE_8BIT,
+        Bits8  = I2C_MEMADD_SIZE_8BIT,
         Bits16 = I2C_MEMADD_SIZE_16BIT,
     };
 
@@ -20,17 +20,20 @@ public:
 
     explicit I2CBus(I2C_HandleTypeDef* handle);
 
-    I2CBus(const I2CBus&) = delete;
+    I2CBus(const I2CBus&)            = delete;
     I2CBus& operator=(const I2CBus&) = delete;
 
-    bool master_transmit(uint16_t device_address, const uint8_t* data, uint16_t length,
-                         Callback callback = nullptr, void* context = nullptr);
-    bool master_receive(uint16_t device_address, uint8_t* data, uint16_t length,
-                        Callback callback = nullptr, void* context = nullptr);
-    bool memory_write(uint16_t device_address, uint16_t memory_address, MemoryAddressSize memory_address_size,
-                      const uint8_t* data, uint16_t length, Callback callback = nullptr, void* context = nullptr);
-    bool memory_read(uint16_t device_address, uint16_t memory_address, MemoryAddressSize memory_address_size,
-                     uint8_t* data, uint16_t length, Callback callback = nullptr, void* context = nullptr);
+    bool init();
+
+    bool master_transmit(
+        uint16_t device_address, const uint8_t* data, uint16_t length, Callback callback = nullptr, void* context = nullptr);
+    bool master_receive(uint16_t device_address, uint8_t* data, uint16_t length, Callback callback = nullptr, void* context = nullptr);
+    bool memory_write(
+        uint16_t device_address, uint16_t memory_address, MemoryAddressSize memory_address_size, const uint8_t* data, uint16_t length,
+        Callback callback = nullptr, void* context = nullptr);
+    bool memory_read(
+        uint16_t device_address, uint16_t memory_address, MemoryAddressSize memory_address_size, uint8_t* data, uint16_t length,
+        Callback callback = nullptr, void* context = nullptr);
 
     void on_transfer_complete(I2C_HandleTypeDef* handle);
     void on_error(I2C_HandleTypeDef* handle);
