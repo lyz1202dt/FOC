@@ -3,11 +3,17 @@
 #include "encoder.hpp"
 #include "controller.hpp"
 #include "driver.hpp"
+#include "estimater.hpp"
 #include "flash.hpp"
 
 class Motor{
 public:
-    Motor(Flash& flash, Encoder& encoder, MotorDriver& driver, Controller& controller, bool sensorless_mode = false);
+    Motor(Flash& flash,
+          Encoder& encoder,
+          MotorDriver& driver,
+          Controller& controller,
+          Estimater& estimater,
+          bool sensorless_mode = false);
 
     bool init();
     bool is_ready() const;
@@ -21,6 +27,8 @@ private:
     Encoder& encoder_;         //编码器控制器，获取编码器数据
     MotorDriver& driver_;      //电机驱动器，获取电流，输出电压
     Controller& controller_;   //FOC控制器，输入电流和编码器状态，输出电压
+    Estimater& estimater_;     //状态估计器，融合传感器与电压/电流供控制使用
+    float last_voltage_[3]{0.0f, 0.0f, 0.0f};
     bool motor_is_ready{false};
     bool sensorless_mode_{false};
 };

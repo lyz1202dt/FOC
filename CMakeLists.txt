@@ -72,6 +72,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     LIB/controller
     LIB/comm
     LIB/encoder
+    LIB/estimater
     LIB/motor
     LIB/tools
 )
