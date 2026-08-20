@@ -19,7 +19,13 @@ public:
         uint16_t value;
     }ADCRawValue[4];
 
-    MotorDriver();
+    MotorDriver() {
+        for (auto& adc : ADCRawValue) {
+            adc.time = 0U;
+            adc.value = 0U;
+        }
+    }
+    virtual ~MotorDriver() = default;
     virtual bool init() {                                              // 驱动器初始化
         return true;
     }

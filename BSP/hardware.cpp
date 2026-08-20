@@ -1,17 +1,12 @@
 #include "hardware.hpp"
 #include "I2CBus.hpp"
 #include "SPIBus.hpp"
-#include "driver.hpp"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
 
-#include "motor.hpp"
-
-extern Motor motor;
 
 namespace BSP {
-
 
 namespace {
 
@@ -33,12 +28,20 @@ SPIBus& spi3_bus() {
     return g_spi3_bus;
 }
 
+// 动态回调注册
+IRQCallback_t kIRQCallbackTab[Tab_IRQ_NUM]{};
+void bind_irq_func(IRQType type,Func func,void* ctx)
+{
+    kIRQCallbackTab[type].func = func;
+    kIRQCallbackTab[type].ctx = ctx;
+}
+
 // 高精度时钟
 volatile uint32_t g_timer_update_cnt = 0U;
 void time_init() {
     HAL_TIM_Base_Start_IT(&htim7); // 开启时基
 }
-uint32_t get_time_us() {
+uint64_t get_time_us() {
     __HAL_TIM_DISABLE_IT(&htim7, TIM_IT_UPDATE);
     uint64_t time = ((uint64_t)__HAL_TIM_GET_COUNTER(&htim7)) + (((uint64_t)g_timer_update_cnt) << 16);
     __HAL_TIM_ENABLE_IT(&htim7, TIM_IT_UPDATE);
@@ -57,7 +60,8 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     TIM_TypeDef* instance = htim->Instance;
     if (instance == TIM1) {
-        motor.update();
+        if(kIRQCallbackTab[TIM1_UPDATE_IRQ].func)
+            kIRQCallbackTab[TIM1_UPDATE_IRQ].func(kIRQCallbackTab[TIM1_UPDATE_IRQ].ctx);
     }
     if (instance == TIM7) {
         g_timer_update_cnt++;
@@ -72,10 +76,15 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) // 电流采样完成，�
 // ADC注入通道数据采集中断
 void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef* hadc) {
     ADC_TypeDef* instance = hadc->Instance;
-    if (instance == ADC1) { // 注入通道，采集相电流和总线电压
-        motor.driver->set_raw_adc_value(MotorDriver::PhraseB, instance->JDR1);
-        motor.driver->set_raw_adc_value(MotorDriver::PhraseC, instance->JDR2);
-        motor.driver->set_raw_adc_value(MotorDriver::DCBusVol, instance->JDR3);
+    if(instance==ADC1)
+    {
+        if(kIRQCallbackTab[ADC1_INJEC_IRQ].func)
+            kIRQCallbackTab[ADC1_INJEC_IRQ].func(kIRQCallbackTab[ADC1_INJEC_IRQ].ctx);
+    }
+    else if(instance==ADC2)
+    {
+        if(kIRQCallbackTab[ADC2_INJEC_IRQ].func)
+            kIRQCallbackTab[ADC2_INJEC_IRQ].func(kIRQCallbackTab[ADC2_INJEC_IRQ].ctx);
     }
 }
 
