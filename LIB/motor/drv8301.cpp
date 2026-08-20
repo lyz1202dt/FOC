@@ -21,6 +21,9 @@ constexpr float kDefaultCurrentGain         = 20.0f;
 constexpr float kShuntResistanceOhms        = 0.001f;
 constexpr float kVbusDividerRatio           = 11.0f; // R5=20K, R9=2K on SCH_Schematic1_2026-08-16.pdf.
 
+constexpr BSP::SPIBus::TransferOptions kSpiOptions(
+    SPI_DATASIZE_8BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB);
+
 constexpr uint16_t kCurrentAdcLowerBound =
     static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMinVolt / kAdcReferenceVolts);
 constexpr uint16_t kCurrentAdcUpperBound =
@@ -432,7 +435,7 @@ bool DRV8301::transfer_word(uint16_t tx_word, uint16_t* rx_word) {
     rx_buf_[0] = 0U;
     rx_buf_[1] = 0U;
 
-    if (!spi_.transfer_blocking(tx_buf_, rx_buf_, sizeof(tx_buf_), kSpiTimeoutMs)) {
+    if (!spi_.transfer_blocking(tx_buf_, rx_buf_, sizeof(tx_buf_), kSpiTimeoutMs, kSpiOptions)) {
         return false;
     }
 
@@ -447,4 +450,3 @@ float DRV8301::phase_current_from_adc(uint16_t raw, uint16_t offset) const {
     const float amp_out_volts = static_cast<float>(adc_delta) * kAdcReferenceVolts / kAdcFullScale;
     return amp_out_volts / (current_gain_ * kShuntResistanceOhms);
 }
-

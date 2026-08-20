@@ -17,6 +17,9 @@ constexpr uint16_t kAngleComRegister = 0x3FFFU;
 constexpr float kTwoPi = 6.2831853071795864769f;
 constexpr float kCountsPerTurn = 16384.0f;
 
+constexpr BSP::SPIBus::TransferOptions kSpiOptions(
+    SPI_DATASIZE_16BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB);
+
 } // namespace
 
 AS5047P::AS5047P() {
@@ -134,7 +137,8 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
         reinterpret_cast<uint8_t*>(&rx_word_),
         1U,
         &AS5047P::on_transfer_complete,
-        this);
+        this,
+        kSpiOptions);
 
     if (!accepted) {
         active_response_ = old_active;
