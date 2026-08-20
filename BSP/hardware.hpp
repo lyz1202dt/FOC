@@ -17,6 +17,7 @@ SVPWM& tim1_svpwm();
 Measure& adc_measure();
 Gpio& drv8301_enable_gate();
 Gpio& drv8301_fault();
+Gpio& drv8301_dc_cal();
 
 void time_init();
 uint64_t get_time_us();

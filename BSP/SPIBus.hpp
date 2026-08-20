@@ -23,6 +23,8 @@ public:
     bool transfer(
         const uint8_t* tx_data, uint8_t* rx_data, uint16_t length, Callback callback = nullptr, void* context = nullptr,
         Gpio* cs = nullptr);
+    bool transfer_blocking(
+        const uint8_t* tx_data, uint8_t* rx_data, uint16_t length, uint32_t timeout_ms, Gpio* cs = nullptr);
 
     void on_transfer_complete(SPI_HandleTypeDef* handle);
     void on_error(SPI_HandleTypeDef* handle);

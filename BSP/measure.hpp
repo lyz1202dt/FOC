@@ -23,12 +23,12 @@ public:
     struct {
         uint64_t time;
         uint16_t value;
-    } ADCRawValue[TabItemNum];
+    } ADCRawValue[TabItemNum]{};
 
     Measure();
     bool init();
     void set_raw_adc_value(ADCItemTab channel, uint16_t value);
-    uint16_t get_raw_value(ADCItemTab channel,uint32_t time_err_us);
+    bool get_raw_adc_value(ADCItemTab channel, uint16_t &value,uint32_t time_err_us);
 };
 
 } // namespace BSP

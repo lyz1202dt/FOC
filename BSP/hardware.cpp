@@ -58,6 +58,10 @@ Gpio& drv8301_fault() {
     return g_drv8301_fault;
 }
 
+Gpio& drv8301_dc_cal() {
+    return g_dc_cal;
+}
+
 
 // 高精度时钟
 volatile uint32_t g_timer_update_cnt = 0U;

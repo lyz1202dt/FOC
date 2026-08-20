@@ -71,6 +71,51 @@ bool SPIBus::enqueue(const Transaction& transaction) {
     return true;
 }
 
+bool SPIBus::transfer_blocking(const uint8_t* tx_data, uint8_t* rx_data, uint16_t length, uint32_t timeout_ms, Gpio* cs) {
+    if (!handle_ || !tx_data || !rx_data || length == 0U) {
+        return false;
+    }
+
+    bool accepted = false;
+    __disable_irq();
+    if (!active_ && count_ == 0U) {
+        active_  = true;
+        accepted = true;
+    }
+    __enable_irq();
+
+    if (!accepted) {
+        return false;
+    }
+
+    Gpio* transaction_cs = cs ? cs : default_cs_;
+    if (transaction_cs) {
+        transaction_cs->write(false);
+    }
+
+    HAL_StatusTypeDef status =
+        HAL_SPI_TransmitReceive(handle_, const_cast<uint8_t*>(tx_data), rx_data, length, timeout_ms);
+
+    if (transaction_cs) {
+        transaction_cs->write(true);
+    }
+
+    bool should_start = false;
+    __disable_irq();
+    active_ = count_ > 0U;
+    if (active_) {
+        active_transaction_ = queue_[head_];
+        should_start        = true;
+    }
+    __enable_irq();
+
+    if (should_start) {
+        start_next();
+    }
+
+    return status == HAL_OK;
+}
+
 void SPIBus::start_next() {
     if (active_transaction_.cs) {
         active_transaction_.cs->write(false);

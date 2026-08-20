@@ -20,7 +20,7 @@ bool Motor::init() {
     }
     if (!driver) {
         driver = new DRV8301(BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(),
-                             BSP::drv8301_enable_gate(), BSP::drv8301_fault());
+                             BSP::drv8301_enable_gate(), BSP::drv8301_fault(), BSP::drv8301_dc_cal());
     }
     if (!controller) {
         //TODO:之后根据Flash配置动态选择加载其它控制算法
