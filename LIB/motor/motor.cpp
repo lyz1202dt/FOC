@@ -34,7 +34,7 @@ bool Motor::init() {
         return false;
     }
     motor_is_ready = driver->is_ready();
-    return true;
+    return motor_is_ready;
 }
 
 bool Motor::is_ready()const 

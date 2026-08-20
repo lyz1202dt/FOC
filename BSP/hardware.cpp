@@ -25,7 +25,7 @@ I2CBus g_sensor_i2c_bus(&hi2c1);
 SPIBus g_ic_spi_bus(&hspi1, &g_ic_spi_cs);
 SPIBus g_sensor_spi_bus(&hspi3, &g_sensor_spi_cs);
 //板载硬件设备
-SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
+SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_3, TIM_CHANNEL_2, TIM_CHANNEL_1);
 Measure g_adc_measure;
 
 } // namespace

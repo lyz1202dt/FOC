@@ -56,12 +56,7 @@ public:
     FaultType_e get_error();
     bool read_status(StatusRegisters& status);
     bool clear_faults();
-    bool set_dc_calibration(bool enable);
     bool calibrate_current_offsets(uint32_t samples = 32U, uint32_t timeout_ms = 100U);
-
-    float get_midpoint() const;
-    float get_max_output_swing() const;
-    float current_gain() const;
 
 private:
     enum CtrlMode_e : uint16_t {
@@ -93,12 +88,10 @@ private:
     bool write_reg(RegName_e reg_name, uint16_t data);
     bool transfer_word(uint16_t tx_word, uint16_t* rx_word);
     float phase_current_from_adc(uint16_t raw, uint16_t offset) const;
-    bool adc_value_in_current_range(uint16_t raw) const;
-    void set_output_zero();
 
     BSP::SPIBus& spi_;
     BSP::SVPWM& svpwm_;
-    BSP::Measure& phase_current_measure_;
+    BSP::Measure& measure_;
     BSP::Gpio& enable_gate_;
     BSP::Gpio& fault_;
     BSP::Gpio& dc_cal_;

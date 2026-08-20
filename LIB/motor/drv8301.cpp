@@ -50,7 +50,7 @@ DRV8301::DRV8301(BSP::SPIBus& spi, BSP::SVPWM& svpwm, BSP::Measure& phase_curren
                  BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal)
     : spi_(spi)
     , svpwm_(svpwm)
-    , phase_current_measure_(phase_current_measure)
+    , measure_(phase_current_measure)
     , enable_gate_(enable_gate)
     , fault_(fault)
     , dc_cal_(dc_cal) {
@@ -108,21 +108,15 @@ bool DRV8301::init() {
     enabled_ = false;
     last_fault_ = FaultType_NoFault;
     set_output_zero();
-    set_dc_calibration(false);
+    dc_cal_.write(false);
     enable_gate_.write(false);
-
-    if (!phase_current_measure_.init()) {
-        return false;
-    }
-
-    if (!svpwm_.init()) {
-        return false;
-    }
 
     delay_us(40); // DRV8301 reset low time is only tens of us.
     enable_gate_.write(true);
     HAL_Delay(20); // t_spi_ready max is 10ms.
 
+    // ODrive writes control register 1 multiple times because the first write
+    // can be ignored on some boards.
     bool wrote_regs =
         write_reg(kRegNameControl1, regs_.control_register_1) &&
         write_reg(kRegNameControl1, regs_.control_register_1) &&
@@ -160,6 +154,14 @@ bool DRV8301::init() {
         return false;
     }
 
+    if (!fault_.read()) {
+        state_ = State::Uninitialized;
+        enabled_ = false;
+        set_output_zero();
+        last_fault_ = FaultType_FAULT;
+        return false;
+    }
+
     if (!calibrate_current_offsets()) {
         state_ = State::Uninitialized;
         enabled_ = false;
@@ -183,8 +185,7 @@ bool DRV8301::set_enable(bool enable) {
     if (!enable) {
         enabled_ = false;
         state_ = State::Uninitialized;
-        set_output_zero();
-        set_dc_calibration(false);
+        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         enable_gate_.write(false);
         return true;
     }
@@ -281,13 +282,8 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
 
     uint16_t raw_b = 0U;
     uint16_t raw_c = 0U;
-    if (!phase_current_measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) ||
-        !phase_current_measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
-        return false;
-    }
-
-    if (!adc_value_in_current_range(raw_b) || !adc_value_in_current_range(raw_c)) {
-        last_fault_ |= FaultType_CurrentSenseSaturation;
+    if (!measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) ||
+        !measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
         return false;
     }
 
@@ -299,7 +295,7 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
 
 bool DRV8301::get_vbus_voltage(float& vol) {
     uint16_t raw_vbus = 0U;
-    if (!phase_current_measure_.get_raw_adc_value(BSP::Measure::DCBusVol, raw_vbus, kSampleFreshnessUs)) {
+    if (!measure_.get_raw_adc_value(BSP::Measure::DCBusVol, raw_vbus, kSampleFreshnessUs)) {
         return false;
     }
 
@@ -309,13 +305,13 @@ bool DRV8301::get_vbus_voltage(float& vol) {
 
 bool DRV8301::set_phrase_voltage(float v1, float v2, float v3) {
     if (state_ != State::Ready || !enabled_) {
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
         return false;
     }
 
     float vbus = 0.0f;
     if (!get_vbus_voltage(vbus) || !(vbus > 1e-3f)) {
-        set_output_zero();
+        svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
         return v1 == 0.0f && v2 == 0.0f && v3 == 0.0f;
     }
 
@@ -328,7 +324,7 @@ void DRV8301::do_checks() {
         last_fault_ |= FaultType_FAULT;
         state_ = State::Uninitialized;
         enabled_ = false;
-        set_output_zero();
+        svpwm_.set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
     }
 }
 
@@ -359,10 +355,6 @@ bool DRV8301::clear_faults() {
     return ok;
 }
 
-bool DRV8301::set_dc_calibration(bool enable) {
-    dc_cal_.write(enable);
-    return true;
-}
 
 bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
     if (samples == 0U) {
@@ -374,14 +366,14 @@ bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
     uint32_t count = 0U;
     const uint32_t start_ms = HAL_GetTick();
 
-    set_dc_calibration(true);
+    dc_cal_.write(true);
     delay_us(100);
 
     while (count < samples && (HAL_GetTick() - start_ms) <= timeout_ms) {
         uint16_t raw_b = 0U;
         uint16_t raw_c = 0U;
-        if (phase_current_measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) &&
-            phase_current_measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
+        if (measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) &&
+            measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
             sum_b += raw_b;
             sum_c += raw_c;
             ++count;
@@ -389,7 +381,7 @@ bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
         delay_us(100);
     }
 
-    set_dc_calibration(false);
+    dc_cal_.write(false);
 
     if (count == 0U) {
         return false;
@@ -398,18 +390,6 @@ bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
     current_offsets_[0] = static_cast<uint16_t>(sum_b / count);
     current_offsets_[1] = static_cast<uint16_t>(sum_c / count);
     return count == samples;
-}
-
-float DRV8301::get_midpoint() const {
-    return kAdcReferenceVolts * 0.5f;
-}
-
-float DRV8301::get_max_output_swing() const {
-    return kCurrentSenseMaxSwingVolts;
-}
-
-float DRV8301::current_gain() const {
-    return current_gain_;
 }
 
 uint16_t DRV8301::build_ctrl_word(CtrlMode_e ctrl_mode, RegName_e reg_name, uint16_t data) {
@@ -468,10 +448,3 @@ float DRV8301::phase_current_from_adc(uint16_t raw, uint16_t offset) const {
     return amp_out_volts / (current_gain_ * kShuntResistanceOhms);
 }
 
-bool DRV8301::adc_value_in_current_range(uint16_t raw) const {
-    return raw >= kCurrentAdcLowerBound && raw <= kCurrentAdcUpperBound;
-}
-
-void DRV8301::set_output_zero() {
-    svpwm_.set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
-}
