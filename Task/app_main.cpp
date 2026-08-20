@@ -4,7 +4,8 @@
 
 Motor motor;
 
-extern "C" void app_main(void* param) {
+extern "C" {
+void app_main(void* param) {
     BSP::time_init();
     bool success = motor.init();
     if (!success) {
@@ -18,4 +19,5 @@ extern "C" void app_main(void* param) {
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
+}
 }

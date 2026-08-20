@@ -1,6 +1,11 @@
 #include "hardware.hpp"
+#include "gpio.hpp"
 #include "I2CBus.hpp"
+#include "measure.hpp"
 #include "SPIBus.hpp"
+#include "svpwm.hpp"
+#include "adc.h"
+#include "gpio.h"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
@@ -9,32 +14,50 @@
 namespace BSP {
 
 namespace {
-
-I2CBus g_i2c1_bus(&hi2c1);
-SPIBus g_spi1_bus(&hspi1, IC_SPI_CS_GPIO_Port, IC_SPI_CS_Pin);
-SPIBus g_spi3_bus(&hspi3, SENSOR_SPI_CS_GPIO_Port, SENSOR_SPI_CS_Pin);
+//GPIO设备
+Gpio g_ic_spi_cs(IC_SPI_CS_GPIO_Port, IC_SPI_CS_Pin);
+Gpio g_sensor_spi_cs(SENSOR_SPI_CS_GPIO_Port, SENSOR_SPI_CS_Pin);
+Gpio g_drv8301_enable_gate(GPIOC, GPIO_PIN_15);
+Gpio g_drv8301_fault(IC_FAULT_GPIO_Port, IC_FAULT_Pin);
+Gpio g_dc_cal(DC_CAL_GPIO_Port, DC_CAL_Pin);
+//总线设备
+I2CBus g_sensor_i2c_bus(&hi2c1);
+SPIBus g_ic_spi_bus(&hspi1, &g_ic_spi_cs);
+SPIBus g_sensor_spi_bus(&hspi3, &g_sensor_spi_cs);
+//板载硬件设备
+SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3);
+Measure g_adc_measure;
 
 } // namespace
 
-I2CBus& i2c1_bus() {
-    return g_i2c1_bus;
+I2CBus& sensor_i2c_bus() {
+    return g_sensor_i2c_bus;
 }
 
-SPIBus& spi1_bus() {
-    return g_spi1_bus;
+SPIBus& ic_spi_bus() {
+    return g_ic_spi_bus;
 }
 
-SPIBus& spi3_bus() {
-    return g_spi3_bus;
+SPIBus& sensor_spi_bus() {
+    return g_sensor_spi_bus;
 }
 
-// 动态回调注册
-IRQCallback_t kIRQCallbackTab[Tab_IRQ_NUM]{};
-void bind_irq_func(IRQType type,Func func,void* ctx)
-{
-    kIRQCallbackTab[type].func = func;
-    kIRQCallbackTab[type].ctx = ctx;
+SVPWM& tim1_svpwm() {
+    return g_tim1_svpwm;
 }
+
+Measure& adc_measure() {
+    return g_adc_measure;
+}
+
+Gpio& drv8301_enable_gate() {
+    return g_drv8301_enable_gate;
+}
+
+Gpio& drv8301_fault() {
+    return g_drv8301_fault;
+}
+
 
 // 高精度时钟
 volatile uint32_t g_timer_update_cnt = 0U;
@@ -48,6 +71,8 @@ uint64_t get_time_us() {
     return time;
 }
 
+
+//中断处理
 extern "C" {
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi);
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi);
@@ -60,8 +85,7 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c);
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     TIM_TypeDef* instance = htim->Instance;
     if (instance == TIM1) {
-        if(kIRQCallbackTab[TIM1_UPDATE_IRQ].func)
-            kIRQCallbackTab[TIM1_UPDATE_IRQ].func(kIRQCallbackTab[TIM1_UPDATE_IRQ].ctx);
+        g_tim1_svpwm.timer_irq();
     }
     if (instance == TIM7) {
         g_timer_update_cnt++;
@@ -78,13 +102,13 @@ void HAL_ADCEx_InjectedConvCpltCallback(ADC_HandleTypeDef* hadc) {
     ADC_TypeDef* instance = hadc->Instance;
     if(instance==ADC1)
     {
-        if(kIRQCallbackTab[ADC1_INJEC_IRQ].func)
-            kIRQCallbackTab[ADC1_INJEC_IRQ].func(kIRQCallbackTab[ADC1_INJEC_IRQ].ctx);
+        g_adc_measure.set_raw_adc_value(Measure::PhraseB, instance->JDR1);
+        g_adc_measure.set_raw_adc_value(Measure::PhraseC, instance->JDR2);
+        g_adc_measure.set_raw_adc_value(Measure::DCBusVol, instance->JDR3);
     }
     else if(instance==ADC2)
     {
-        if(kIRQCallbackTab[ADC2_INJEC_IRQ].func)
-            kIRQCallbackTab[ADC2_INJEC_IRQ].func(kIRQCallbackTab[ADC2_INJEC_IRQ].ctx);
+        
     }
 }
 
@@ -98,17 +122,17 @@ void HAL_SPI_RxCpltCallback(SPI_HandleTypeDef* hspi) {
 void HAL_SPI_TxRxCpltCallback(SPI_HandleTypeDef* hspi) {
     SPI_TypeDef* instance = hspi->Instance;
     if (instance == SPI3) {
-        spi3_bus().on_transfer_complete(hspi);
+        sensor_spi_bus().on_transfer_complete(hspi);
     } else if (instance == SPI1) { // IC通信
-        spi1_bus().on_transfer_complete(hspi);
+        ic_spi_bus().on_transfer_complete(hspi);
     }
 }
 void HAL_SPI_ErrorCallback(SPI_HandleTypeDef* hspi) {
     SPI_TypeDef* instance = hspi->Instance;
     if (instance == SPI3) {
-        spi3_bus().on_error(hspi);
+        sensor_spi_bus().on_error(hspi);
     } else if (instance == SPI1) {
-        spi1_bus().on_error(hspi);
+        ic_spi_bus().on_error(hspi);
     }
 }
 void HAL_SPI_AbortCpltCallback(SPI_HandleTypeDef* hspi) {
@@ -118,37 +142,37 @@ void HAL_SPI_AbortCpltCallback(SPI_HandleTypeDef* hspi) {
 // I2C传输完成中断
 void HAL_I2C_MasterTxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_transfer_complete(hi2c);
+        sensor_i2c_bus().on_transfer_complete(hi2c);
     }
 }
 
 void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_transfer_complete(hi2c);
+        sensor_i2c_bus().on_transfer_complete(hi2c);
     }
 }
 
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_transfer_complete(hi2c);
+        sensor_i2c_bus().on_transfer_complete(hi2c);
     }
 }
 
 void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_transfer_complete(hi2c);
+        sensor_i2c_bus().on_transfer_complete(hi2c);
     }
 }
 
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_error(hi2c);
+        sensor_i2c_bus().on_error(hi2c);
     }
 }
 
 void HAL_I2C_AbortCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
-        i2c1_bus().on_error(hi2c);
+        sensor_i2c_bus().on_error(hi2c);
     }
 }
 

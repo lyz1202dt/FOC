@@ -4,18 +4,17 @@
 
 namespace BSP {
 
-SPIBus::SPIBus(SPI_HandleTypeDef* handle, GPIO_TypeDef* default_cs_port, uint16_t default_cs_pin)
-    : handle_(handle), default_cs_port_(default_cs_port), default_cs_pin_(default_cs_pin) {}
+SPIBus::SPIBus(SPI_HandleTypeDef* handle, Gpio* default_cs)
+    : handle_(handle), default_cs_(default_cs) {}
 
 bool SPIBus::transfer(const uint8_t* tx_data, uint8_t* rx_data, uint16_t length,
                       Callback callback, void* context,
-                      GPIO_TypeDef* cs_port, uint16_t cs_pin) {
+                      Gpio* cs) {
     Transaction transaction{};
     transaction.tx_data = tx_data;
     transaction.rx_data = rx_data;
     transaction.length = length;
-    transaction.cs_port = cs_port ? cs_port : default_cs_port_;
-    transaction.cs_pin = cs_port ? cs_pin : default_cs_pin_;
+    transaction.cs = cs ? cs : default_cs_;
     transaction.callback = callback;
     transaction.context = context;
     return enqueue(transaction);
@@ -67,8 +66,8 @@ bool SPIBus::enqueue(const Transaction& transaction) {
 }
 
 void SPIBus::start_next() {
-    if (active_transaction_.cs_port && active_transaction_.cs_pin != 0U) {
-        HAL_GPIO_WritePin(active_transaction_.cs_port, active_transaction_.cs_pin, GPIO_PIN_RESET);
+    if (active_transaction_.cs) {
+        active_transaction_.cs->write(false);
     }
 
     HAL_StatusTypeDef status = HAL_SPI_TransmitReceive_IT(handle_,
@@ -96,8 +95,8 @@ void SPIBus::complete_active(bool success) {
     }
     __enable_irq();
 
-    if (finished.cs_port && finished.cs_pin != 0U) {
-        HAL_GPIO_WritePin(finished.cs_port, finished.cs_pin, GPIO_PIN_SET);
+    if (finished.cs) {
+        finished.cs->write(true);
     }
 
     if (finished.callback) {

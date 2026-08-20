@@ -7,23 +7,7 @@
 
 class MotorDriver {
 public:
-
-    enum ADCMotor{
-        PhraseA,
-        PhraseB,
-        PhraseC,
-        DCBusVol,
-    };
-    struct{
-        uint64_t time;
-        uint16_t value;
-    }ADCRawValue[4];
-
     MotorDriver() {
-        for (auto& adc : ADCRawValue) {
-            adc.time = 0U;
-            adc.value = 0U;
-        }
     }
     virtual ~MotorDriver() = default;
     virtual bool init() {                                              // 驱动器初始化
@@ -34,12 +18,6 @@ public:
     }
     virtual bool set_enable(bool enable = true) {                      // 开关驱动器功能
         return true;
-    }
-    
-    void set_raw_adc_value(ADCMotor channel,uint16_t value)
-    {
-        ADCRawValue[channel].value=value;
-        ADCRawValue[channel].time=BSP::get_time_us();
     }
 
     virtual int lookup_reason(std::string& reason) {                   // 查询错误原因并上报

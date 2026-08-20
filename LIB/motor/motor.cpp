@@ -15,20 +15,18 @@ bool Motor::init() {
     }
 
     if (!encoder) {
+        //TODO:之后根据Flash配置动态选择加载其它编码器
         encoder = new AS5600();
     }
     if (!driver) {
-        driver = new DRV8301();
+        driver = new DRV8301(BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(),
+                             BSP::drv8301_enable_gate(), BSP::drv8301_fault());
     }
     if (!controller) {
+        //TODO:之后根据Flash配置动态选择加载其它控制算法
         controller = new FOC();
     }
 
-    BSP::bind_irq_func(BSP::TIM1_UPDATE_IRQ,
-                       [](void* ctx) {
-                           static_cast<Motor*>(ctx)->update();
-                       },
-                       this);
     if (!driver->init()) {
         return false;
     }

@@ -15,7 +15,7 @@ AS5600::AS5600() {
 }
 
 void AS5600::sensor_update() {
-    BSP::i2c1_bus().memory_read(
+    BSP::sensor_i2c_bus().memory_read(
         kAs5600Address,
         kAs5600AngleRegister,
         BSP::I2CBus::MemoryAddressSize::Bits8,
