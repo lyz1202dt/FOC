@@ -5,6 +5,9 @@
 class Comm {
 public:
     Comm();
-    virtual void send()=0;
-    virtual void register_recv_cb(std::function<bool(void*,int)> cb)=0;
+    virtual ~Comm();
+    virtual void register_recv_callback(std::function<void(void* data, int size)> callback);
+    virtual bool send_pack(void* data, int size) {
+        return false;
+    };
 };

@@ -12,9 +12,6 @@
 #include "foc.hpp"
 #include "motor.hpp"
 
-namespace {
-
-
 static Flash flash;
 static AS5600 encoder;
 static FOC controller;
@@ -26,7 +23,6 @@ void on_pwm_update(void* context) {
     static_cast<Motor*>(context)->fast_loop();
 }
 
-} // namespace
 
 extern "C" {
 void app_main(void* param) {
@@ -37,7 +33,7 @@ void app_main(void* param) {
     BSP::sensor_spi_bus().init();
     BSP::sensor_i2c_bus().init();
 
-    Motor motor(flash, encoder, driver, controller, estimater);
+    Motor motor(&flash, &encoder, &driver, &controller, &estimater);
     bool success = motor.init();
     if (!success) {
         success = motor.init();
