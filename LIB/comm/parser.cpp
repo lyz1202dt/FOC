@@ -2,16 +2,14 @@
 
 #include <functional>
 
-PackParser::PackParser(Flash* flash, Motor* motor, Comm* comm) {
-    flash_ = flash;
-    motor_ = motor;
+PackParser::PackParser(Comm* comm) {
     comm_  = comm;
     comm_->register_recv_callback([this](void* data, int size) {
         on_received_pack(data, size);
     });
 }
 
-void PackParser::register_cmd_callback(uint32_t cmd, std::function<void(const Command& cmd)> func) {
+void PackParser::register_cmd_callback(uint32_t cmd, std::function<void(const Command* cmd)> func) {
     callbacks[cmd] = func;
 }
 
@@ -28,7 +26,7 @@ void PackParser::on_received_pack(void* data, int size) {
 
     auto iter = callbacks.find(pack->cmd);
     if (iter != callbacks.end() && iter->second) {
-        iter->second(*pack);
+        iter->second(pack);
     }
 }
 

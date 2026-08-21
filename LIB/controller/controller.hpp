@@ -1,5 +1,6 @@
 #pragma once
 
+
 class Controller {
 public:
     Controller()          = default;
@@ -12,5 +13,5 @@ public:
         v3 = 0.0f;
         return true;
     };
-    virtual void set_reference_current(float iq,float id){};
+    virtual void set_controller_reference(float position,float velocity,float torque,float kp,float kd){};
 };

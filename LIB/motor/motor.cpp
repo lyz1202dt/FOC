@@ -10,6 +10,12 @@ Motor::Motor(Flash* flash, Encoder* encoder, MotorDriver* driver, Controller* co
     , sensorless_mode_(sensorless_mode) {
 }
 
+bool Motor::enable(bool enable)
+{
+    enable_motor_=enable;
+    return enable_motor_;
+}
+
 bool Motor::init() {
     if (motor_is_ready) {
         return true;
@@ -38,6 +44,9 @@ bool Motor::is_sensorless_mode() const {
 }
 
 bool Motor::fast_loop() {
+    if(!enable_motor_)      //未使能电机，正常退出
+        return true;
+
     if (!motor_is_ready) {
         return false;
     }

@@ -15,7 +15,7 @@ namespace {
 
 class PackParser {
     public:
-    PackParser(Flash *flash,Motor* motor,Comm *comm);
+    explicit PackParser(Comm *comm);
     PackParser(PackParser&)=delete;
 
     template<typename T>
@@ -29,14 +29,12 @@ class PackParser {
         return comm_->send_pack(pack, sizeof(Command)+data_size);
     }
     void on_received_pack(void* data,int size);
-    void register_cmd_callback(uint32_t cmd,std::function<void(const Command& cmd)>func);   //为每一个cmd提供注册接口
+    void register_cmd_callback(uint32_t cmd,std::function<void(const Command* cmd)>func);   //为每一个cmd提供注册接口
     void unregister_callback(uint32_t cmd);
 private:
     SemaphoreHandle_t irq_recv_semphr;
     TaskHandle_t recv_deal_task;
-    std::unordered_map<uint32_t, std::function<void(const Command& cmd)>> callbacks;
+    std::unordered_map<uint32_t, std::function<void(const Command* cmd)>> callbacks;
     uint8_t send_buffer_[kSendbufferSize];
     Comm* comm_;
-    Flash* flash_;
-    Motor* motor_;
 };

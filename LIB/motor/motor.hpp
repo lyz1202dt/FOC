@@ -17,6 +17,7 @@ public:
           bool sensorless_mode = false);
 
     bool init();
+    bool enable(bool enable);
     bool is_ready() const;
     bool is_sensorless_mode() const;
     bool fast_loop();  //在PWM更新中断中调用
@@ -34,6 +35,7 @@ private:
     void stop_output();
     
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};
+    bool enable_motor_;
     bool motor_is_ready{false};
     bool sensorless_mode_{false};
     std::function<void(void)> fast_look_finished_func_;
