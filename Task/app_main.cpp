@@ -15,7 +15,7 @@
 #include "parser.hpp"
 
 static Flash flash;
-static AS5600 encoder;
+static AS5600 encoder(BSP::sensor_i2c_bus());
 static FOC controller;
 static Estimater estimater;
 static DRV8301 driver(

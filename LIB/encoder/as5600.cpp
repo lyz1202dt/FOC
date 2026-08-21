@@ -1,6 +1,5 @@
 #include "as5600.hpp"
 
-#include "hardware.hpp"
 #include "I2CBus.hpp"
 
 namespace {
@@ -10,7 +9,8 @@ constexpr uint16_t kAs5600AngleRegister = 0x0Cu;
 
 } // namespace
 
-AS5600::AS5600() {
+AS5600::AS5600(BSP::I2CBus& bus)
+    : bus_(bus) {
 }
 
 bool AS5600::init() {
@@ -23,7 +23,7 @@ bool AS5600::init() {
 }
 
 bool AS5600::sensor_update() {
-    return BSP::sensor_i2c_bus().memory_read(
+    return bus_.memory_read(
         kAs5600Address,
         kAs5600AngleRegister,
         BSP::I2CBus::MemoryAddressSize::Bits8,
