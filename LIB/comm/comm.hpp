@@ -4,10 +4,14 @@
 
 class Comm {
 public:
-    Comm();
-    virtual ~Comm();
-    virtual void register_recv_callback(std::function<void(void* data, int size)> callback);
+    Comm()          = default;
+    virtual ~Comm() = default;
+    virtual void register_recv_callback(std::function<void(void* data, int size)> callback) {
+        (void)callback;
+    }
     virtual bool send_pack(void* data, int size) {
+        (void)data;
+        (void)size;
         return false;
     };
 };

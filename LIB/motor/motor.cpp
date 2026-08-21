@@ -1,4 +1,5 @@
 #include "motor.hpp"
+#include "hardware.hpp"
 
 Motor::Motor(Flash* flash, Encoder* encoder, MotorDriver* driver, Controller* controller, Estimater* estimater, bool sensorless_mode)
     : flash_(flash)
@@ -82,6 +83,25 @@ bool Motor::fast_loop() {
     last_voltage_[0] = voltage[0];
     last_voltage_[1] = voltage[1];
     last_voltage_[2] = voltage[2];
+
+    if(fast_look_finished_func_)            //用于实现控制器、编码器热更新
+    {
+        fast_look_finished_func_();
+        fast_look_finished_func_=nullptr;
+    }
+        
+    return true;
+}
+
+bool Motor::state_update()
+{
+
+    return true;
+}
+
+bool Motor::fast_loop_finished_cb(std::function<void(void)> func)
+{
+    fast_look_finished_func_=std::move(func);
     return true;
 }
 

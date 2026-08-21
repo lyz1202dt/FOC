@@ -11,7 +11,7 @@ PackParser::PackParser(Flash* flash, Motor* motor, Comm* comm) {
     });
 }
 
-void PackParser::register_callback(uint32_t cmd, std::function<void(const Command& cmd)> func) {
+void PackParser::register_cmd_callback(uint32_t cmd, std::function<void(const Command& cmd)> func) {
     callbacks[cmd] = func;
 }
 

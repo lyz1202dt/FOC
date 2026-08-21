@@ -4,11 +4,13 @@
 #include "measure.hpp"
 #include "SPIBus.hpp"
 #include "svpwm.hpp"
+#include "uart.hpp"
 #include "adc.h"
 #include "gpio.h"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
+#include "usart.h"
 
 
 namespace BSP {
@@ -27,6 +29,8 @@ SPIBus g_sensor_spi_bus(&hspi3, &g_sensor_spi_cs);
 //板载硬件设备
 SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_3, TIM_CHANNEL_2, TIM_CHANNEL_1);
 Measure g_adc_measure;
+//通讯接口
+UARTPort uart3port(&huart3);
 
 } // namespace
 
@@ -62,6 +66,9 @@ Gpio& drv8301_dc_cal() {
     return g_dc_cal;
 }
 
+UARTPort& uart_comm_port() {
+    return uart3port;
+}
 
 // 高精度时钟
 volatile uint32_t g_timer_update_cnt = 0U;
@@ -85,6 +92,9 @@ void HAL_I2C_MasterRxCpltCallback(I2C_HandleTypeDef* hi2c);
 void HAL_I2C_MemRxCpltCallback(I2C_HandleTypeDef* hi2c);
 void HAL_I2C_MemTxCpltCallback(I2C_HandleTypeDef* hi2c);
 void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c);
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart);
+void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart);
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t size);
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     TIM_TypeDef* instance = htim->Instance;
@@ -177,6 +187,33 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef* hi2c) {
 void HAL_I2C_AbortCpltCallback(I2C_HandleTypeDef* hi2c) {
     if (hi2c->Instance == I2C1) {
         sensor_i2c_bus().on_error(hi2c);
+    }
+}
+
+// UART传输和空闲接收中断
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef* huart) {
+    if (huart->Instance == USART3) {
+        uart_comm_port().on_transmit_cplt_irq(huart);
+    }
+}
+
+void HAL_UART_ErrorCallback(UART_HandleTypeDef* huart) {
+    if (huart->Instance == USART3) {
+        uart_comm_port().on_error_irq(huart);
+    }
+}
+
+void HAL_UART_AbortCpltCallback(UART_HandleTypeDef* huart) {
+    HAL_UART_ErrorCallback(huart);
+}
+
+void HAL_UART_AbortReceiveCpltCallback(UART_HandleTypeDef* huart) {
+    HAL_UART_ErrorCallback(huart);
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef* huart, uint16_t size) {
+    if (huart->Instance == USART3) {
+        uart_comm_port().on_receive_cplt_irq(huart, size);
     }
 }
 

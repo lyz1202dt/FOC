@@ -12,4 +12,9 @@ public:
                      const float& rad,
                      const bool& rad_is_trustable) override;
     bool get_output(float& v1, float& v2, float& v3) override;
+
+    void set_reference_current(float iq,float id)override;
+private:
+        float exp_iq_;
+        float exp_id_;
 };

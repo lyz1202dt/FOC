@@ -11,3 +11,9 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
     v3 = 0.0f;
     return true;
 }
+
+void FOC::set_reference_current(float iq,float id)
+{
+    exp_id_=id;
+    exp_iq_=iq;
+}
