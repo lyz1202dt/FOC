@@ -1,6 +1,7 @@
 #pragma once
 
 #include "encoder.hpp"
+#include "spi.hpp"
 
 #include <cstdint>
 
@@ -31,6 +32,7 @@ private:
 
     uint16_t tx_word_{0U};
     uint16_t rx_word_{0U};
+    bsp::SPITransfer transfer_{};
     Response active_response_{Response::None};
     Response pending_response_{Response::None};
     bool started_{false};

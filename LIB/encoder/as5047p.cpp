@@ -1,6 +1,6 @@
 #include "as5047p.hpp"
 
-#include "SPIBus.hpp"
+#include "spi.hpp"
 #include "hardware.hpp"
 #include "stm32g4xx_hal.h"
 
@@ -17,8 +17,8 @@ constexpr uint16_t kAngleComRegister = 0x3FFFU;
 constexpr float kTwoPi = 6.2831853071795864769f;
 constexpr float kCountsPerTurn = 16384.0f;
 
-constexpr BSP::SPIBus::TransferOptions kSpiOptions(
-    SPI_DATASIZE_16BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB);
+constexpr bsp::SPITransfer::TransferOptions kSpiOptions{
+    SPI_DATASIZE_16BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB};
 
 } // namespace
 
@@ -132,13 +132,22 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
     pending_response_ = command_response;
     in_flight_ = true;
 
-    const bool accepted = BSP::sensor_spi_bus().transfer(
-        reinterpret_cast<const uint8_t*>(&tx_word_),
-        reinterpret_cast<uint8_t*>(&rx_word_),
-        1U,
-        &AS5047P::on_transfer_complete,
-        this,
-        kSpiOptions);
+    transfer_.tx_data = &tx_word_;
+    transfer_.rx_data = &rx_word_;
+    transfer_.size = 1U;
+    transfer_.param = this;
+    transfer_.options = kSpiOptions;
+    transfer_.pre_transmit_cb = [](bsp::SPITransfer*) {
+        BSP::sensor_spi_cs().write(false);
+    };
+    transfer_.transmited_cb = [](bsp::SPITransfer* transfer) {
+        BSP::sensor_spi_cs().write(true);
+        AS5047P::on_transfer_complete(
+            transfer->param,
+            transfer->status == HAL_OK && transfer->error_code == HAL_SPI_ERROR_NONE);
+    };
+
+    const bool accepted = BSP::sensor_spi_bus().transferDma(transfer_);
 
     if (!accepted) {
         active_response_ = old_active;

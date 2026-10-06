@@ -1,22 +1,45 @@
 #pragma once
 
-#include "uart.hpp"
 #include <cstdint>
 
-namespace BSP {
+#include "adc.hpp"
+#include "gpio.hpp"
+#include "i2c.hpp"
+#include "measure.hpp"
+#include "spi.hpp"
+#include "svpwm.hpp"
+#include "tim.hpp"
+#include "uart.hpp"
+#include "usart.hpp"
 
-class I2CBus;
-class SPIBus;
-class Gpio;
-class SVPWM;
-class Measure;
-class UARTPort;
+namespace bsp::hardware {
+
+extern GpioPin ic_spi_cs;
+extern GpioPin sensor_spi_cs;
+extern GpioPin drv8301_enable_gate;
+extern GpioPin drv8301_fault;
+extern GpioPin dc_cal;
+
+extern SpiBus spi1;
+extern SpiBus spi3;
+extern I2CBus i2c1;
+extern UartPort uart3;
+extern AdcChannel adc1;
+extern Timer tim7;
+
+HAL_StatusTypeDef init();
+
+} // namespace bsp::hardware
+
+namespace BSP {
 
 I2CBus& sensor_i2c_bus();
 SPIBus& ic_spi_bus();
 SPIBus& sensor_spi_bus();
 SVPWM& tim1_svpwm();
 Measure& adc_measure();
+Gpio& ic_spi_cs();
+Gpio& sensor_spi_cs();
 Gpio& drv8301_enable_gate();
 Gpio& drv8301_fault();
 Gpio& drv8301_dc_cal();
@@ -25,5 +48,6 @@ UARTPort& uart_comm_port();
 void time_init();
 uint64_t get_time_us();
 
-
 } // namespace BSP
+
+extern "C" void HardwareInit(void);

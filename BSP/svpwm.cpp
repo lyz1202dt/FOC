@@ -1,8 +1,67 @@
 #include "svpwm.hpp"
 
 #include <algorithm>
+#include <cstddef>
 
 namespace BSP {
+
+namespace {
+struct SVPWMSlot {
+    TIM_HandleTypeDef* timer = nullptr;
+    SVPWM* instance = nullptr;
+};
+
+constexpr std::size_t kMaxSVPWMCount = 4U;
+SVPWMSlot g_svpwm_slots[kMaxSVPWMCount]{};
+
+SVPWMSlot* findSlot(TIM_HandleTypeDef* timer)
+{
+    for (SVPWMSlot& slot : g_svpwm_slots) {
+        if (slot.timer == timer) {
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+SVPWMSlot* ensureSlot(TIM_HandleTypeDef* timer)
+{
+    if (timer == nullptr) {
+        return nullptr;
+    }
+
+    SVPWMSlot* slot = findSlot(timer);
+    if (slot != nullptr) {
+        return slot;
+    }
+
+    for (SVPWMSlot& empty_slot : g_svpwm_slots) {
+        if (empty_slot.timer == nullptr) {
+            empty_slot.timer = timer;
+            return &empty_slot;
+        }
+    }
+
+    return nullptr;
+}
+
+void clearSlot(TIM_HandleTypeDef* timer)
+{
+    SVPWMSlot* slot = findSlot(timer);
+    if (slot != nullptr) {
+        slot->timer = nullptr;
+        slot->instance = nullptr;
+    }
+}
+
+void periodElapsedCallback(TIM_HandleTypeDef* timer)
+{
+    SVPWMSlot* slot = findSlot(timer);
+    if (slot != nullptr && slot->instance != nullptr) {
+        slot->instance->timer_irq();
+    }
+}
+} // namespace
 
 SVPWM::SVPWM(TIM_HandleTypeDef* timer, uint32_t channel_1, uint32_t channel_2, uint32_t channel_3)
     : timer_(timer)
@@ -17,9 +76,20 @@ bool SVPWM::init() {
     load_config();
     set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
 
+    SVPWMSlot* slot = ensureSlot(timer_);
+    if (slot == nullptr) {
+        return false;
+    }
+    slot->instance = this;
+    if (HAL_TIM_RegisterCallback(timer_, HAL_TIM_PERIOD_ELAPSED_CB_ID, &periodElapsedCallback) != HAL_OK) {
+        clearSlot(timer_);
+        return false;
+    }
+
     if (HAL_TIM_PWM_Start(timer_, channels_[0]) != HAL_OK || HAL_TIMEx_PWMN_Start(timer_, channels_[0]) != HAL_OK
         || HAL_TIM_PWM_Start(timer_, channels_[1]) != HAL_OK || HAL_TIMEx_PWMN_Start(timer_, channels_[1]) != HAL_OK
         || HAL_TIM_PWM_Start(timer_, channels_[2]) != HAL_OK || HAL_TIMEx_PWMN_Start(timer_, channels_[2]) != HAL_OK) {
+        clearSlot(timer_);
         return false;
     }
 

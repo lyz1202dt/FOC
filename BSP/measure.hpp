@@ -3,8 +3,6 @@
 #include <cstdint>
 
 #include "adc.h"
-#include "gpio.hpp"
-#include "hardware.hpp"
 
 namespace BSP {
 
@@ -28,7 +26,7 @@ public:
     Measure();
     bool init();
     void set_raw_adc_value(ADCItemTab channel, uint16_t value);
-    bool get_raw_adc_value(ADCItemTab channel, uint16_t &value,uint32_t time_err_us);
+    bool get_raw_adc_value(ADCItemTab channel, uint16_t& value, uint32_t time_err_us);
 };
 
 } // namespace BSP

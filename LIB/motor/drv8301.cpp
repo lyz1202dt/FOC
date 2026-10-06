@@ -1,6 +1,6 @@
 #include "drv8301.hpp"
 
-#include "SPIBus.hpp"
+#include "spi.hpp"
 #include "gpio.hpp"
 #include "hardware.hpp"
 #include "measure.hpp"
@@ -20,9 +20,6 @@ constexpr float kCurrentSenseMaxSwingVolts  = 1.35f;
 constexpr float kDefaultCurrentGain         = 20.0f;
 constexpr float kShuntResistanceOhms        = 0.001f;
 constexpr float kVbusDividerRatio           = 11.0f; // R5=20K, R9=2K on SCH_Schematic1_2026-08-16.pdf.
-
-constexpr BSP::SPIBus::TransferOptions kSpiOptions(
-    SPI_DATASIZE_8BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB);
 
 constexpr uint16_t kCurrentAdcLowerBound =
     static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMinVolt / kAdcReferenceVolts);
@@ -435,7 +432,14 @@ bool DRV8301::transfer_word(uint16_t tx_word, uint16_t* rx_word) {
     rx_buf_[0] = 0U;
     rx_buf_[1] = 0U;
 
-    if (!spi_.transfer_blocking(tx_buf_, rx_buf_, sizeof(tx_buf_), kSpiTimeoutMs, kSpiOptions)) {
+    if (spi_.native() == nullptr) {
+        return false;
+    }
+
+    BSP::ic_spi_cs().write(false);
+    const HAL_StatusTypeDef status = HAL_SPI_TransmitReceive(spi_.native(), tx_buf_, rx_buf_, sizeof(tx_buf_), kSpiTimeoutMs);
+    BSP::ic_spi_cs().write(true);
+    if (status != HAL_OK) {
         return false;
     }
 

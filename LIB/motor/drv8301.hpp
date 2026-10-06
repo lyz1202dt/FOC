@@ -4,12 +4,12 @@
 #include <string>
 
 #include "driver.hpp"
+#include "gpio.hpp"
+#include "spi.hpp"
 
 namespace BSP {
-class SPIBus;
 class SVPWM;
 class Measure;
-class Gpio;
 }
 
 class DRV8301 : public MotorDriver {

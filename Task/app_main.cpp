@@ -1,6 +1,6 @@
 #include "app_main.hpp"
-#include "I2CBus.hpp"
-#include "SPIBus.hpp"
+#include "i2c.hpp"
+#include "spi.hpp"
 #include "hardware.hpp"
 #include "measure.hpp"
 #include "pack.h"

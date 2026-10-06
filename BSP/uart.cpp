@@ -1,19 +1,21 @@
 #include "uart.hpp"
 
 #include <cstring>
+#include <utility>
 
 #include "pack.h"
 
 namespace BSP {
 
 namespace {
-constexpr uint8_t kFrameHeader       = 0x5AU;
-constexpr std::size_t kHeaderOffset  = 0U;
-constexpr std::size_t kLengthOffset  = 1U;
+constexpr uint8_t kFrameHeader = 0x5AU;
+constexpr std::size_t kHeaderOffset = 0U;
+constexpr std::size_t kLengthOffset = 1U;
 constexpr std::size_t kCommandOffset = 2U;
 constexpr std::size_t kPayloadOffset = UARTPort::kFrameHeadSize;
 
-uint16_t crc16_modbus(const uint8_t* data, std::size_t size) {
+uint16_t crc16_modbus(const uint8_t* data, std::size_t size)
+{
     uint16_t crc = 0xFFFFU;
     for (std::size_t i = 0U; i < size; ++i) {
         crc ^= data[i];
@@ -28,21 +30,25 @@ uint16_t crc16_modbus(const uint8_t* data, std::size_t size) {
     return crc;
 }
 
-uint16_t read_u16_le(const uint8_t* data) {
+uint16_t read_u16_le(const uint8_t* data)
+{
     return static_cast<uint16_t>(data[0]) | static_cast<uint16_t>(static_cast<uint16_t>(data[1]) << 8U);
 }
 
-uint32_t read_u32_le(const uint8_t* data) {
+uint32_t read_u32_le(const uint8_t* data)
+{
     return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8U) |
            (static_cast<uint32_t>(data[2]) << 16U) | (static_cast<uint32_t>(data[3]) << 24U);
 }
 
-void write_u16_le(uint8_t* data, uint16_t value) {
+void write_u16_le(uint8_t* data, uint16_t value)
+{
     data[0] = static_cast<uint8_t>(value & 0x00FFU);
     data[1] = static_cast<uint8_t>((value >> 8U) & 0x00FFU);
 }
 
-void write_u32_le(uint8_t* data, uint32_t value) {
+void write_u32_le(uint8_t* data, uint32_t value)
+{
     data[0] = static_cast<uint8_t>(value & 0x000000FFUL);
     data[1] = static_cast<uint8_t>((value >> 8U) & 0x000000FFUL);
     data[2] = static_cast<uint8_t>((value >> 16U) & 0x000000FFUL);
@@ -50,26 +56,28 @@ void write_u32_le(uint8_t* data, uint32_t value) {
 }
 } // namespace
 
-UARTPort::UARTPort(UART_HandleTypeDef* huart)
-    : huart_(huart) {
+UARTPort::UARTPort(bsp::UartPort& port)
+    : port_(port)
+{
 }
 
-void UARTPort::register_recv_callback(std::function<void(void* data, int size)> callback) {
-    recv_callback_ = callback;
-    
+void UARTPort::register_recv_callback(std::function<void(void* data, int size)> callback)
+{
+    recv_callback_ = std::move(callback);
 }
 
 bool UARTPort::init()
 {
-    return start_receive();
+    return port_.init() && start_receive();
 }
 
-bool UARTPort::send_pack(void* data, int size) {
-    if (huart_ == nullptr || huart_->Instance == nullptr || data == nullptr || size < static_cast<int>(sizeof(Command))) {
+bool UARTPort::send_pack(void* data, int size)
+{
+    if (port_.native() == nullptr || data == nullptr || size < static_cast<int>(sizeof(Command))) {
         return false;
     }
 
-    const auto* command      = static_cast<const Command*>(data);
+    const auto* command = static_cast<const Command*>(data);
     const uint32_t payload_size = command->size;
     if (payload_size > kMaxPayloadSize || size != static_cast<int>(sizeof(Command) + payload_size)) {
         return false;
@@ -79,7 +87,7 @@ bool UARTPort::send_pack(void* data, int size) {
     __disable_irq();
     if (!transmit_busy_) {
         transmit_busy_ = true;
-        accepted       = true;
+        accepted = true;
     }
     __enable_irq();
 
@@ -98,7 +106,12 @@ bool UARTPort::send_pack(void* data, int size) {
     const uint16_t crc = crc16_modbus(send_buffer_, frame_size - kFrameCrcSize);
     write_u16_le(&send_buffer_[frame_size - kFrameCrcSize], crc);
 
-    const HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(huart_, send_buffer_, frame_size);
+    const HAL_StatusTypeDef status = port_.transmitDma(
+        send_buffer_, frame_size, [this](const void*, uint16_t) {
+            __disable_irq();
+            transmit_busy_ = false;
+            __enable_irq();
+        });
     if (status != HAL_OK) {
         __disable_irq();
         transmit_busy_ = false;
@@ -109,40 +122,30 @@ bool UARTPort::send_pack(void* data, int size) {
     return true;
 }
 
-void UARTPort::on_error_irq(UART_HandleTypeDef* huart) {
-    if (!owns(huart)) {
-        return;
+bool UARTPort::start_receive()
+{
+    if (port_.native() == nullptr) {
+        return false;
     }
 
-    __disable_irq();
-    transmit_busy_ = false;
-    __enable_irq();
-
-    HAL_UART_DMAStop(huart_);
-    start_receive();
+    const HAL_StatusTypeDef status = port_.receiveToIdleDma(
+        recv_buffer_,
+        static_cast<uint16_t>(kFrameMaxSize),
+        [this](const void*, uint16_t size) {
+            on_receive(size);
+        },
+        true);
+    return status == HAL_OK;
 }
 
-void UARTPort::on_transmit_cplt_irq(UART_HandleTypeDef* huart) {
-    if (!owns(huart)) {
-        return;
-    }
-
-    __disable_irq();
-    transmit_busy_ = false;
-    __enable_irq();
-}
-
-void UARTPort::on_receive_cplt_irq(UART_HandleTypeDef* huart, uint16_t size) {
-    if (!owns(huart)) {
-        return;
-    }
-
-    if (HAL_UARTEx_GetRxEventType(huart_) == HAL_UART_RXEVENT_HT) {
+void UARTPort::on_receive(uint16_t size)
+{
+    if (HAL_UARTEx_GetRxEventType(port_.native()) == HAL_UART_RXEVENT_HT) {
         return;
     }
 
     uint16_t command_size = 0U;
-    const bool valid      = parse_received_frame(size, command_size);
+    const bool valid = parse_received_frame(size, command_size);
     start_receive();
 
     if (valid && recv_callback_) {
@@ -150,27 +153,8 @@ void UARTPort::on_receive_cplt_irq(UART_HandleTypeDef* huart, uint16_t size) {
     }
 }
 
-bool UARTPort::owns(UART_HandleTypeDef* huart) const {
-    return huart_ == huart;
-}
-
-bool UARTPort::start_receive() {
-    if (huart_ == nullptr || huart_->Instance == nullptr) {
-        return false;
-    }
-
-    const HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(huart_, recv_buffer_, static_cast<uint16_t>(kFrameMaxSize));
-    if (status != HAL_OK) {
-        return false;
-    }
-
-    if (huart_->hdmarx != nullptr) {
-        __HAL_DMA_DISABLE_IT(huart_->hdmarx, DMA_IT_HT);
-    }
-    return true;
-}
-
-bool UARTPort::parse_received_frame(uint16_t size, uint16_t& command_size) {
+bool UARTPort::parse_received_frame(uint16_t size, uint16_t& command_size)
+{
     if (size < kFrameHeadSize + kFrameCrcSize || size > kFrameMaxSize) {
         return false;
     }
@@ -196,7 +180,7 @@ bool UARTPort::parse_received_frame(uint16_t size, uint16_t& command_size) {
     }
 
     auto* command = reinterpret_cast<Command*>(command_buffer_);
-    command->cmd  = read_u32_le(&recv_buffer_[kCommandOffset]);
+    command->cmd = read_u32_le(&recv_buffer_[kCommandOffset]);
     command->size = payload_size;
     if (payload_size > 0U) {
         std::memcpy(command->data, &recv_buffer_[kPayloadOffset], payload_size);

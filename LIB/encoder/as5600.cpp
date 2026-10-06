@@ -1,6 +1,6 @@
 #include "as5600.hpp"
 
-#include "I2CBus.hpp"
+#include "i2c.hpp"
 
 namespace {
 
@@ -23,14 +23,18 @@ bool AS5600::init() {
 }
 
 bool AS5600::sensor_update() {
-    return bus_.memory_read(
-        kAs5600Address,
-        kAs5600AngleRegister,
-        BSP::I2CBus::MemoryAddressSize::Bits8,
-        &recv_buffer[0],
-        2,
-        &AS5600::on_read_complete,
-        this);
+    transfer_.operation = bsp::I2COperation::MemoryRead;
+    transfer_.device_address = kAs5600Address;
+    transfer_.memory_address = kAs5600AngleRegister;
+    transfer_.memory_address_size = I2C_MEMADD_SIZE_8BIT;
+    transfer_.rx_data = &recv_buffer[0];
+    transfer_.tx_data = nullptr;
+    transfer_.size = 2U;
+    transfer_.param = this;
+    transfer_.transmited_cb = [](bsp::I2CTransfer* transfer) {
+        AS5600::on_read_complete(transfer->param, transfer->status == HAL_OK && transfer->error_code == HAL_I2C_ERROR_NONE);
+    };
+    return bus_.transferIt(transfer_);
 }
 
 void AS5600::on_read_complete(void* ctx, bool success) {

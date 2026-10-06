@@ -1,6 +1,6 @@
 #include "measure.hpp"
+
 #include "hardware.hpp"
-#include "stm32g4xx_hal_adc_ex.h"
 
 namespace BSP {
 
@@ -8,7 +8,11 @@ Measure::Measure() {
 }
 
 bool Measure::init() {
-    return HAL_ADCEx_InjectedStart_IT(&hadc1) == HAL_OK;
+    return bsp::hardware::adc1.injectedStartIt([this]() {
+        set_raw_adc_value(Measure::PhraseB, static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_1)));
+        set_raw_adc_value(Measure::PhraseC, static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_2)));
+        set_raw_adc_value(Measure::DCBusVol, static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_3)));
+    }) == HAL_OK;
 }
 
 void Measure::set_raw_adc_value(ADCItemTab channel, uint16_t value)
@@ -21,7 +25,7 @@ void Measure::set_raw_adc_value(ADCItemTab channel, uint16_t value)
     ADCRawValue[channel].time  = BSP::get_time_us();
 }
 
-bool Measure::get_raw_adc_value(ADCItemTab channel, uint16_t &value,uint32_t time_err_us)
+bool Measure::get_raw_adc_value(ADCItemTab channel, uint16_t& value, uint32_t time_err_us)
 {
     if (channel >= TabItemNum) {
         return false;
