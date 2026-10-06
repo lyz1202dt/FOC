@@ -57,6 +57,9 @@ public:
     HAL_StatusTypeDef stop() const;
     HAL_StatusTypeDef startIt() const;
     HAL_StatusTypeDef stopIt() const;
+    void setDmaAddress(const uint32_t* data);
+    const uint32_t* dmaAddress() const { return dma_address_; }
+    HAL_StatusTypeDef startDma(uint16_t length) const;
     HAL_StatusTypeDef startDma(const uint32_t* data, uint16_t length) const;
     HAL_StatusTypeDef stopDma() const;
 
@@ -67,6 +70,7 @@ public:
 private:
     TIM_HandleTypeDef* handle_ = nullptr;
     uint32_t channel_ = TIM_CHANNEL_1;
+    const uint32_t* dma_address_ = nullptr;
 };
 
 } // namespace bsp

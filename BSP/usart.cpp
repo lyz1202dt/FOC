@@ -309,10 +309,27 @@ HAL_StatusTypeDef UartPort::receiveIt(
     return status;
 }
 
+void UartPort::setDmaAddress(const void* tx_data, void* rx_data)
+{
+    tx_dma_address_ = tx_data;
+    rx_dma_address_ = rx_data;
+}
+
+void UartPort::setTransmitDmaAddress(const void* data)
+{
+    tx_dma_address_ = data;
+}
+
+void UartPort::setReceiveDmaAddress(void* data)
+{
+    rx_dma_address_ = data;
+}
+
 HAL_StatusTypeDef UartPort::transmitDma(
     const void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || data == nullptr || size == 0U) {
+    const void* dma_data = tx_dma_address_ != nullptr ? tx_dma_address_ : data;
+    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->gState != HAL_UART_STATE_READY) {
@@ -325,13 +342,13 @@ HAL_StatusTypeDef UartPort::transmitDma(
     }
 
     TransferState& state = slot->state;
-    state.tx_data = data;
+    state.tx_data = dma_data;
     state.tx_size = size;
     state.tx_finished = std::move(finished_cb);
     state.tx_pending = true;
     state.tx_circular = handle_->hdmatx != nullptr && handle_->hdmatx->Init.Mode == DMA_CIRCULAR;
 
-    const HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(handle_, static_cast<const uint8_t*>(data), size);
+    const HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(handle_, static_cast<const uint8_t*>(dma_data), size);
     if (status != HAL_OK) {
         clearTransmitState(state);
     }
@@ -341,7 +358,8 @@ HAL_StatusTypeDef UartPort::transmitDma(
 HAL_StatusTypeDef UartPort::receiveDma(
     void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || data == nullptr || size == 0U) {
+    void* dma_data = rx_dma_address_ != nullptr ? rx_dma_address_ : data;
+    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->RxState != HAL_UART_STATE_READY) {
@@ -354,14 +372,14 @@ HAL_StatusTypeDef UartPort::receiveDma(
     }
 
     TransferState& state = slot->state;
-    state.rx_data = data;
+    state.rx_data = dma_data;
     state.rx_size = size;
     state.rx_finished = std::move(finished_cb);
     state.rx_pending = true;
     state.rx_to_idle = false;
     state.rx_circular = handle_->hdmarx != nullptr && handle_->hdmarx->Init.Mode == DMA_CIRCULAR;
 
-    const HAL_StatusTypeDef status = HAL_UART_Receive_DMA(handle_, static_cast<uint8_t*>(data), size);
+    const HAL_StatusTypeDef status = HAL_UART_Receive_DMA(handle_, static_cast<uint8_t*>(dma_data), size);
     if (status != HAL_OK) {
         clearReceiveState(state);
     }
@@ -374,7 +392,8 @@ HAL_StatusTypeDef UartPort::receiveToIdleDma(
     std::function<void(const void* data, uint16_t size)> finished_cb,
     bool disable_half_transfer_it) const
 {
-    if (handle_ == nullptr || data == nullptr || size == 0U) {
+    void* dma_data = rx_dma_address_ != nullptr ? rx_dma_address_ : data;
+    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->RxState != HAL_UART_STATE_READY) {
@@ -387,14 +406,14 @@ HAL_StatusTypeDef UartPort::receiveToIdleDma(
     }
 
     TransferState& state = slot->state;
-    state.rx_data = data;
+    state.rx_data = dma_data;
     state.rx_size = size;
     state.rx_finished = std::move(finished_cb);
     state.rx_pending = true;
     state.rx_to_idle = true;
     state.rx_circular = handle_->hdmarx != nullptr && handle_->hdmarx->Init.Mode == DMA_CIRCULAR;
 
-    const HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(handle_, static_cast<uint8_t*>(data), size);
+    const HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(handle_, static_cast<uint8_t*>(dma_data), size);
     if (status != HAL_OK) {
         clearReceiveState(state);
         return status;

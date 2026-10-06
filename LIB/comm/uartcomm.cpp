@@ -72,6 +72,24 @@ void UartComm::register_recv_callback(std::function<void(void* data, int size)> 
     recv_callback_ = std::move(callback);
 }
 
+bool UartComm::set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size)
+{
+    if (rx_buffer == nullptr || rx_size == 0U || rx_size > 0xFFFFU || tx_buffer == nullptr ||
+        tx_size < kFrameMaxSize || transmit_busy_) {
+        return false;
+    }
+
+    if (handle_ != nullptr && handle_->RxState != HAL_UART_STATE_READY) {
+        return false;
+    }
+
+    rx_dma_buffer_ = rx_buffer;
+    rx_dma_buffer_size_ = rx_size;
+    send_buffer_ = tx_buffer;
+    send_buffer_size_ = tx_size;
+    return true;
+}
+
 bool UartComm::init()
 {
     if (handle_ == nullptr || !bind() || !configureReceiveDma()) {
@@ -123,6 +141,13 @@ bool UartComm::send_pack(void* data, int size)
     }
 
     const uint16_t frame_size = static_cast<uint16_t>(kFrameHeadSize + payload_size + kFrameCrcSize);
+    if (frame_size > send_buffer_size_) {
+        __disable_irq();
+        transmit_busy_ = false;
+        __enable_irq();
+        return false;
+    }
+
     send_buffer_[kHeaderOffset] = kFrameHeader;
     send_buffer_[kLengthOffset] = static_cast<uint8_t>(payload_size);
     write_u32_le(&send_buffer_[kCommandOffset], command->cmd);
@@ -220,7 +245,7 @@ bool UartComm::startReceive()
 
     rx_dma_last_pos_ = 0U;
     const HAL_StatusTypeDef status =
-        HAL_UARTEx_ReceiveToIdle_DMA(handle_, rx_dma_buffer_, static_cast<uint16_t>(kRxDmaBufferSize));
+        HAL_UARTEx_ReceiveToIdle_DMA(handle_, rx_dma_buffer_, static_cast<uint16_t>(rx_dma_buffer_size_));
     return status == HAL_OK;
 }
 
@@ -234,14 +259,14 @@ void UartComm::onTransmitComplete()
 void UartComm::onReceiveEvent(uint16_t position)
 {
     std::size_t current_pos = position;
-    if (current_pos > kRxDmaBufferSize) {
-        current_pos = kRxDmaBufferSize;
+    if (current_pos > rx_dma_buffer_size_) {
+        current_pos = rx_dma_buffer_size_;
     }
 
     if (current_pos > rx_dma_last_pos_) {
         pushDmaRange(rx_dma_last_pos_, current_pos);
     } else if (current_pos < rx_dma_last_pos_) {
-        pushDmaRange(rx_dma_last_pos_, kRxDmaBufferSize);
+        pushDmaRange(rx_dma_last_pos_, rx_dma_buffer_size_);
         pushDmaRange(0U, current_pos);
     }
 

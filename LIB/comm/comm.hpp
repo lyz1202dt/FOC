@@ -6,6 +6,9 @@ class Comm {
 public:
     Comm()          = default;
     virtual ~Comm() = default;
+    virtual bool init() {
+        return false;
+    }
     virtual void register_recv_callback(std::function<void(void* data, int size)> callback) {
         (void)callback;
     }

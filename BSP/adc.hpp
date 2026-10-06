@@ -14,6 +14,10 @@ public:
     constexpr AdcChannel() = default;
     explicit constexpr AdcChannel(ADC_HandleTypeDef& handle) : handle_(&handle) {}
 
+    void setDmaAddress(uint32_t* data);
+    uint32_t* dmaAddress() const { return dma_address_; }
+
+    HAL_StatusTypeDef startDma(uint32_t length, Callback cplt = nullptr) const;
     HAL_StatusTypeDef startDma(uint32_t* data, uint32_t length, Callback cplt = nullptr) const;
     HAL_StatusTypeDef stopDma() const;
 
@@ -35,6 +39,7 @@ private:
     static void dispatchInjectedCplt(ADC_HandleTypeDef* handle);
 
     ADC_HandleTypeDef* handle_ = nullptr;
+    uint32_t* dma_address_ = nullptr;
 };
 
 } // namespace bsp

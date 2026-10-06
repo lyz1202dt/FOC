@@ -17,6 +17,12 @@ public:
     HAL_StatusTypeDef receiveIt(void* data, uint16_t size,
                                 std::function<void(const void* data, uint16_t size)> finished_cb) const;
 
+    void setDmaAddress(const void* tx_data, void* rx_data);
+    void setTransmitDmaAddress(const void* data);
+    void setReceiveDmaAddress(void* data);
+    const void* transmitDmaAddress() const { return tx_dma_address_; }
+    void* receiveDmaAddress() const { return rx_dma_address_; }
+
     HAL_StatusTypeDef transmitDma(const void* data, uint16_t size,
                                   std::function<void(const void* data, uint16_t size)> finished_cb) const;
     HAL_StatusTypeDef receiveDma(void* data, uint16_t size,
@@ -60,6 +66,8 @@ private:
     static void clearAllStates(UART_HandleTypeDef* huart);
 
     UART_HandleTypeDef* handle_ = nullptr;
+    const void* tx_dma_address_ = nullptr;
+    void* rx_dma_address_ = nullptr;
 };
 
 } // namespace bsp

@@ -20,6 +20,12 @@ struct SPITransfer {
     std::function<void(SPITransfer*)> pre_transmit_cb;
     std::function<void(SPITransfer*)> transmited_cb;
 
+    void setDmaAddress(const void* tx_address, void* rx_address)
+    {
+        tx_data = tx_address;
+        rx_data = rx_address;
+    }
+
     struct TransferOptions {
         uint32_t data_size = SPI_DATASIZE_8BIT;
         uint32_t clk_polarity = SPI_POLARITY_LOW;
@@ -40,6 +46,12 @@ public:
     bool transferIt(SPITransfer& transfer);
     bool transferDma(SPITransfer& transfer);
     bool abort();
+
+    void setDmaAddress(const void* tx_data, void* rx_data);
+    void setTransmitDmaAddress(const void* data);
+    void setReceiveDmaAddress(void* data);
+    const void* transmitDmaAddress() const { return tx_dma_address_; }
+    void* receiveDmaAddress() const { return rx_dma_address_; }
 
     SPI_HandleTypeDef* native() const { return handle_; }
     bool valid() const { return handle_ != nullptr && queue_ != nullptr; }
@@ -72,7 +84,7 @@ private:
     static void unregisterBus(SpiBus* bus);
 
     bool inIsr() const;
-    bool transferValid(const SPITransfer& transfer) const;
+    bool transferValid(const SPITransfer& transfer, TransferMode mode) const;
     HAL_StatusTypeDef startHalTransfer(SPITransfer& transfer, TransferMode mode) const;
     SPITransfer* clearActiveTransfer(bool from_isr);
     bool takeNextTransfer(bool from_isr, QueuedTransfer& queued, BaseType_t* higher_priority_task_woken);
@@ -84,6 +96,8 @@ private:
     QueueHandle_t queue_ = nullptr;
     SPITransfer* active_transfer_ = nullptr;
     TransferMode active_mode_ = TransferMode::Interrupt;
+    const void* tx_dma_address_ = nullptr;
+    void* rx_dma_address_ = nullptr;
 };
 
 } // namespace bsp

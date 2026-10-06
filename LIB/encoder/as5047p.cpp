@@ -25,6 +25,11 @@ constexpr bsp::SPITransfer::TransferOptions kSpiOptions{
 AS5047P::AS5047P() {
 }
 
+void AS5047P::setDmaAddress(uint16_t* tx_word, uint16_t* rx_word) {
+    tx_dma_word_ = tx_word;
+    rx_dma_word_ = rx_word;
+}
+
 bool AS5047P::init() {
     if (started_) {
         return true;
@@ -75,7 +80,7 @@ void AS5047P::on_transfer_complete(void* ctx, bool success) {
         ++self->error_count_;
         self->pending_response_ = Response::None;
     } else {
-        const uint16_t frame = self->rx_word_;
+        const uint16_t frame = *self->rxDmaWord();
         switch (response) {
         case Response::Angle:
             request_error_flags = !self->process_angle_frame(frame);
@@ -117,6 +122,18 @@ bool AS5047P::has_even_parity(uint16_t frame) {
     return (frame & 1U) == 0U;
 }
 
+uint16_t* AS5047P::txDmaWord() {
+    return tx_dma_word_ != nullptr ? tx_dma_word_ : &tx_word_;
+}
+
+uint16_t* AS5047P::rxDmaWord() {
+    return rx_dma_word_ != nullptr ? rx_dma_word_ : &rx_word_;
+}
+
+const uint16_t* AS5047P::rxDmaWord() const {
+    return rx_dma_word_ != nullptr ? rx_dma_word_ : &rx_word_;
+}
+
 bool AS5047P::start_exchange(uint16_t command, Response command_response) {
     if (in_flight_) {
         return true;
@@ -126,14 +143,19 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
     const Response old_pending = pending_response_;
     const bool old_in_flight = in_flight_;
 
-    tx_word_ = command;
-    rx_word_ = 0U;
+    uint16_t* tx_word = txDmaWord();
+    uint16_t* rx_word = rxDmaWord();
+    if (tx_word == nullptr || rx_word == nullptr) {
+        return false;
+    }
+
+    *tx_word = command;
+    *rx_word = 0U;
     active_response_ = pending_response_;
     pending_response_ = command_response;
     in_flight_ = true;
 
-    transfer_.tx_data = &tx_word_;
-    transfer_.rx_data = &rx_word_;
+    transfer_.setDmaAddress(tx_word, rx_word);
     transfer_.size = 1U;
     transfer_.param = this;
     transfer_.options = kSpiOptions;

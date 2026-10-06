@@ -22,7 +22,12 @@ public:
     UartComm(const UartComm&) = delete;
     UartComm& operator=(const UartComm&) = delete;
 
-    bool init();
+    bool init() override;
+    bool set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size);
+    bool setDmaAddress(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size)
+    {
+        return set_dma_address(rx_buffer, rx_size, tx_buffer, tx_size);
+    }
     void register_recv_callback(std::function<void(void* data, int size)> callback) override;
     bool send_pack(void* data, int size) override;
 
@@ -49,13 +54,17 @@ private:
 
     UART_HandleTypeDef* handle_ = nullptr;
     std::function<void(void* data, int size)> recv_callback_;
-    uint8_t rx_dma_buffer_[kRxDmaBufferSize]{};
+    uint8_t rx_dma_buffer_storage_[kRxDmaBufferSize]{};
+    uint8_t* rx_dma_buffer_ = rx_dma_buffer_storage_;
+    std::size_t rx_dma_buffer_size_ = kRxDmaBufferSize;
     uint8_t rx_ring_buffer_[kRxRingBufferSize]{};
     std::size_t rx_dma_last_pos_ = 0U;
     std::size_t rx_ring_head_ = 0U;
     std::size_t rx_ring_tail_ = 0U;
     std::size_t rx_ring_size_ = 0U;
-    uint8_t send_buffer_[kFrameMaxSize]{};
+    uint8_t send_buffer_storage_[kFrameMaxSize]{};
+    uint8_t* send_buffer_ = send_buffer_storage_;
+    std::size_t send_buffer_size_ = kFrameMaxSize;
     alignas(uint32_t) uint8_t command_buffer_[kCommandMaxSize]{};
     bool transmit_busy_ = false;
 };

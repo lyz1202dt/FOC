@@ -72,15 +72,45 @@ bool SpiBus::inIsr() const
     return __get_IPSR() != 0U;
 }
 
-bool SpiBus::transferValid(const SPITransfer& transfer) const
+void SpiBus::setDmaAddress(const void* tx_data, void* rx_data)
 {
-    return transfer.size != 0U && (transfer.tx_data != nullptr || transfer.rx_data != nullptr);
+    tx_dma_address_ = tx_data;
+    rx_dma_address_ = rx_data;
+}
+
+void SpiBus::setTransmitDmaAddress(const void* data)
+{
+    tx_dma_address_ = data;
+}
+
+void SpiBus::setReceiveDmaAddress(void* data)
+{
+    rx_dma_address_ = data;
+}
+
+bool SpiBus::transferValid(const SPITransfer& transfer, TransferMode mode) const
+{
+    const void* tx_data = transfer.tx_data;
+    void* rx_data = transfer.rx_data;
+    if (mode == TransferMode::Dma) {
+        tx_data = tx_dma_address_ != nullptr ? tx_dma_address_ : tx_data;
+        rx_data = rx_dma_address_ != nullptr ? rx_dma_address_ : rx_data;
+    }
+
+    return transfer.size != 0U && (tx_data != nullptr || rx_data != nullptr);
 }
 
 HAL_StatusTypeDef SpiBus::startHalTransfer(SPITransfer& transfer, TransferMode mode) const
 {
-    const auto* tx_data = static_cast<const uint8_t*>(transfer.tx_data);
-    auto* rx_data = static_cast<uint8_t*>(transfer.rx_data);
+    const void* tx_address = transfer.tx_data;
+    void* rx_address = transfer.rx_data;
+    if (mode == TransferMode::Dma) {
+        tx_address = tx_dma_address_ != nullptr ? tx_dma_address_ : tx_address;
+        rx_address = rx_dma_address_ != nullptr ? rx_dma_address_ : rx_address;
+    }
+
+    const auto* tx_data = static_cast<const uint8_t*>(tx_address);
+    auto* rx_data = static_cast<uint8_t*>(rx_address);
 
     if (tx_data != nullptr && rx_data != nullptr) {
         return mode == TransferMode::Dma
@@ -155,7 +185,7 @@ bool SpiBus::startNextTransfer(bool from_isr, BaseType_t* higher_priority_task_w
     }
 
     SPITransfer* transfer = queued.transfer;
-    if (transfer == nullptr || !transferValid(*transfer)) {
+    if (transfer == nullptr || !transferValid(*transfer, queued.mode)) {
         completeTransfer(HAL_ERROR, from_isr, true);
         return false;
     }
@@ -199,7 +229,7 @@ void SpiBus::completeTransfer(HAL_StatusTypeDef status, bool from_isr, bool star
 
 bool SpiBus::enqueueTransfer(SPITransfer& transfer, TransferMode mode)
 {
-    if (!valid() || !transferValid(transfer)) {
+    if (!valid() || !transferValid(transfer, mode)) {
         return false;
     }
 

@@ -165,12 +165,23 @@ HAL_StatusTypeDef PwmChannel::stopIt() const
     return HAL_TIM_PWM_Stop_IT(handle_, channel_);
 }
 
+void PwmChannel::setDmaAddress(const uint32_t* data)
+{
+    dma_address_ = data;
+}
+
+HAL_StatusTypeDef PwmChannel::startDma(uint16_t length) const
+{
+    return startDma(nullptr, length);
+}
+
 HAL_StatusTypeDef PwmChannel::startDma(const uint32_t* data, uint16_t length) const
 {
-    if (handle_ == nullptr || data == nullptr) {
+    const uint32_t* dma_data = dma_address_ != nullptr ? dma_address_ : data;
+    if (handle_ == nullptr || dma_data == nullptr || length == 0U) {
         return HAL_ERROR;
     }
-    return HAL_TIM_PWM_Start_DMA(handle_, channel_, data, length);
+    return HAL_TIM_PWM_Start_DMA(handle_, channel_, dma_data, length);
 }
 
 HAL_StatusTypeDef PwmChannel::stopDma() const

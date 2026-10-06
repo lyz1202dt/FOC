@@ -59,9 +59,20 @@ void AdcChannel::dispatchInjectedCplt(ADC_HandleTypeDef* handle)
     }
 }
 
+void AdcChannel::setDmaAddress(uint32_t* data)
+{
+    dma_address_ = data;
+}
+
+HAL_StatusTypeDef AdcChannel::startDma(uint32_t length, Callback cplt) const
+{
+    return startDma(nullptr, length, std::move(cplt));
+}
+
 HAL_StatusTypeDef AdcChannel::startDma(uint32_t* data, uint32_t length, Callback cplt) const
 {
-    if (handle_ == nullptr || data == nullptr || length == 0U) {
+    uint32_t* dma_data = dma_address_ != nullptr ? dma_address_ : data;
+    if (handle_ == nullptr || dma_data == nullptr || length == 0U) {
         return HAL_ERROR;
     }
 
@@ -76,7 +87,7 @@ HAL_StatusTypeDef AdcChannel::startDma(uint32_t* data, uint32_t length, Callback
         return HAL_ERROR;
     }
 
-    const HAL_StatusTypeDef status = HAL_ADC_Start_DMA(handle_, data, length);
+    const HAL_StatusTypeDef status = HAL_ADC_Start_DMA(handle_, dma_data, length);
     if (status != HAL_OK) {
         state->dma_cplt = nullptr;
     }
