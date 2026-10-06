@@ -2,6 +2,7 @@
 
 #include "stm32g4xx_hal.h"
 
+#include <cstddef>
 #include <functional>
 
 namespace bsp {
@@ -23,6 +24,16 @@ public:
     ADC_HandleTypeDef* native() const { return handle_; }
 
 private:
+    struct State;
+
+    static constexpr std::size_t kMaxAdcCount = 4U;
+    static State states_[kMaxAdcCount];
+
+    static State* findState(ADC_HandleTypeDef* handle);
+    static State* ensureState(ADC_HandleTypeDef* handle);
+    static void dispatchDmaCplt(ADC_HandleTypeDef* handle);
+    static void dispatchInjectedCplt(ADC_HandleTypeDef* handle);
+
     ADC_HandleTypeDef* handle_ = nullptr;
 };
 

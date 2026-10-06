@@ -1,22 +1,20 @@
 #include "adc.hpp"
 
-#include <cstddef>
 #include <utility>
 
-namespace {
+namespace bsp {
 
-struct AdcState {
+struct AdcChannel::State {
     ADC_HandleTypeDef* handle = nullptr;
     std::function<void()> dma_cplt;
     std::function<void()> injected_cplt;
 };
 
-constexpr std::size_t kMaxAdcCount = 4U;
-AdcState g_adc_states[kMaxAdcCount]{};
+AdcChannel::State AdcChannel::states_[AdcChannel::kMaxAdcCount]{};
 
-AdcState* findState(ADC_HandleTypeDef* handle)
+AdcChannel::State* AdcChannel::findState(ADC_HandleTypeDef* handle)
 {
-    for (AdcState& state : g_adc_states) {
+    for (State& state : states_) {
         if (state.handle == handle) {
             return &state;
         }
@@ -24,18 +22,18 @@ AdcState* findState(ADC_HandleTypeDef* handle)
     return nullptr;
 }
 
-AdcState* ensureState(ADC_HandleTypeDef* handle)
+AdcChannel::State* AdcChannel::ensureState(ADC_HandleTypeDef* handle)
 {
     if (handle == nullptr) {
         return nullptr;
     }
 
-    AdcState* state = findState(handle);
+    State* state = findState(handle);
     if (state != nullptr) {
         return state;
     }
 
-    for (AdcState& empty_state : g_adc_states) {
+    for (State& empty_state : states_) {
         if (empty_state.handle == nullptr) {
             empty_state.handle = handle;
             return &empty_state;
@@ -45,25 +43,21 @@ AdcState* ensureState(ADC_HandleTypeDef* handle)
     return nullptr;
 }
 
-void dispatchDmaCplt(ADC_HandleTypeDef* handle)
+void AdcChannel::dispatchDmaCplt(ADC_HandleTypeDef* handle)
 {
-    AdcState* state = findState(handle);
+    State* state = findState(handle);
     if (state != nullptr && state->dma_cplt) {
         state->dma_cplt();
     }
 }
 
-void dispatchInjectedCplt(ADC_HandleTypeDef* handle)
+void AdcChannel::dispatchInjectedCplt(ADC_HandleTypeDef* handle)
 {
-    AdcState* state = findState(handle);
+    State* state = findState(handle);
     if (state != nullptr && state->injected_cplt) {
         state->injected_cplt();
     }
 }
-
-} // namespace
-
-namespace bsp {
 
 HAL_StatusTypeDef AdcChannel::startDma(uint32_t* data, uint32_t length, Callback cplt) const
 {
@@ -71,13 +65,13 @@ HAL_StatusTypeDef AdcChannel::startDma(uint32_t* data, uint32_t length, Callback
         return HAL_ERROR;
     }
 
-    AdcState* state = ensureState(handle_);
+    State* state = ensureState(handle_);
     if (state == nullptr) {
         return HAL_ERROR;
     }
     state->dma_cplt = std::move(cplt);
 
-    if (HAL_ADC_RegisterCallback(handle_, HAL_ADC_CONVERSION_COMPLETE_CB_ID, &dispatchDmaCplt) != HAL_OK) {
+    if (HAL_ADC_RegisterCallback(handle_, HAL_ADC_CONVERSION_COMPLETE_CB_ID, &AdcChannel::dispatchDmaCplt) != HAL_OK) {
         state->dma_cplt = nullptr;
         return HAL_ERROR;
     }
@@ -97,7 +91,7 @@ HAL_StatusTypeDef AdcChannel::stopDma() const
 
     const HAL_StatusTypeDef status = HAL_ADC_Stop_DMA(handle_);
     if (status == HAL_OK) {
-        AdcState* state = findState(handle_);
+        State* state = findState(handle_);
         if (state != nullptr) {
             state->dma_cplt = nullptr;
         }
@@ -111,13 +105,13 @@ HAL_StatusTypeDef AdcChannel::injectedStartIt(Callback cplt) const
         return HAL_ERROR;
     }
 
-    AdcState* state = ensureState(handle_);
+    State* state = ensureState(handle_);
     if (state == nullptr) {
         return HAL_ERROR;
     }
     state->injected_cplt = std::move(cplt);
 
-    if (HAL_ADC_RegisterCallback(handle_, HAL_ADC_INJ_CONVERSION_COMPLETE_CB_ID, &dispatchInjectedCplt) != HAL_OK) {
+    if (HAL_ADC_RegisterCallback(handle_, HAL_ADC_INJ_CONVERSION_COMPLETE_CB_ID, &AdcChannel::dispatchInjectedCplt) != HAL_OK) {
         state->injected_cplt = nullptr;
         return HAL_ERROR;
     }

@@ -5,7 +5,6 @@
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
-#include "usart.h"
 
 namespace bsp::hardware {
 
@@ -18,7 +17,6 @@ GpioPin dc_cal(DC_CAL_GPIO_Port, DC_CAL_Pin);
 SpiBus spi1(hspi1);
 SpiBus spi3(hspi3);
 I2CBus i2c1(hi2c1);
-UartPort uart3(huart3);
 AdcChannel adc1(hadc1);
 Timer tim7(htim7);
 
@@ -28,7 +26,6 @@ HAL_StatusTypeDef init()
     ok = spi1.init() && ok;
     ok = spi3.init() && ok;
     ok = i2c1.init() && ok;
-    ok = uart3.init() && ok;
     return ok ? HAL_OK : HAL_ERROR;
 }
 
@@ -39,7 +36,6 @@ namespace BSP {
 namespace {
 SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_3, TIM_CHANNEL_2, TIM_CHANNEL_1);
 Measure g_adc_measure;
-UARTPort g_uart3_comm(bsp::hardware::uart3);
 
 volatile uint32_t g_timer_update_cnt = 0U;
 }
@@ -92,11 +88,6 @@ Gpio& drv8301_fault()
 Gpio& drv8301_dc_cal()
 {
     return bsp::hardware::dc_cal;
-}
-
-UARTPort& uart_comm_port()
-{
-    return g_uart3_comm;
 }
 
 void time_init()

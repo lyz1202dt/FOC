@@ -2,6 +2,7 @@
 
 #include "stm32g4xx_hal.h"
 
+#include <cstddef>
 #include <functional>
 
 namespace bsp {
@@ -27,6 +28,15 @@ public:
     TIM_HandleTypeDef* native() const { return handle_; }
 
 private:
+    struct CallbackSlot;
+
+    static constexpr std::size_t kMaxCallbackCount = 6U;
+    static CallbackSlot callback_slots_[kMaxCallbackCount];
+
+    static CallbackSlot* findSlot(TIM_HandleTypeDef* handle);
+    static CallbackSlot* ensureSlot(TIM_HandleTypeDef* handle);
+    static void periodElapsedCallback(TIM_HandleTypeDef* handle);
+
     TIM_HandleTypeDef* handle_ = nullptr;
 };
 

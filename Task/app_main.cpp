@@ -5,6 +5,7 @@
 #include "measure.hpp"
 #include "pack.h"
 #include "svpwm.hpp"
+#include "usart.h"
 
 #include "as5600.hpp"
 #include "drv8301.hpp"
@@ -13,6 +14,7 @@
 #include "foc.hpp"
 #include "motor.hpp"
 #include "parser.hpp"
+#include "uartcomm.hpp"
 
 static Flash flash;
 static AS5600 encoder(BSP::sensor_i2c_bus());
@@ -21,7 +23,8 @@ static Estimater estimater;
 static DRV8301 driver(
     BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(), BSP::drv8301_dc_cal());
 Motor motor(&flash, &encoder, &driver, &controller, &estimater);
-PackParser parser(&BSP::uart_comm_port());
+static UartComm uart_comm(huart3);
+PackParser parser(&uart_comm);
 
 void on_pwm_update(void* context) {
     static_cast<Motor*>(context)->fast_loop();
@@ -44,7 +47,7 @@ extern "C" void app_main(void* param) {
     BSP::tim1_svpwm().init();
     BSP::sensor_spi_bus().init();
     BSP::sensor_i2c_bus().init();
-    BSP::uart_comm_port().init();
+    uart_comm.init();
 
     parser.register_cmd_callback(0x01, on_enable_motor);  //电机使能
     parser.register_cmd_callback(0x02, on_target_update); //电机期望值更新

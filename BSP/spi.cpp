@@ -2,21 +2,17 @@
 
 #include "task.h"
 
-#include <cstddef>
-
 namespace bsp {
 
-namespace {
-constexpr std::size_t kMaxSpiBusCount = 4U;
-SpiBus* g_spi_buses[kMaxSpiBusCount]{};
+SpiBus* SpiBus::buses_[SpiBus::kMaxBusCount]{};
 
-void registerBus(SpiBus* bus)
+void SpiBus::registerBus(SpiBus* bus)
 {
     if (bus == nullptr) {
         return;
     }
 
-    for (SpiBus*& slot : g_spi_buses) {
+    for (SpiBus*& slot : buses_) {
         if (slot == bus) {
             return;
         }
@@ -27,15 +23,14 @@ void registerBus(SpiBus* bus)
     }
 }
 
-void unregisterBus(SpiBus* bus)
+void SpiBus::unregisterBus(SpiBus* bus)
 {
-    for (SpiBus*& slot : g_spi_buses) {
+    for (SpiBus*& slot : buses_) {
         if (slot == bus) {
             slot = nullptr;
         }
     }
 }
-} // namespace
 
 SpiBus::SpiBus(SPI_HandleTypeDef& handle, uint32_t queue_length)
     : handle_(&handle)
@@ -64,7 +59,7 @@ SpiBus* SpiBus::find(SPI_HandleTypeDef* hspi)
         return nullptr;
     }
 
-    for (SpiBus* bus : g_spi_buses) {
+    for (SpiBus* bus : buses_) {
         if (bus != nullptr && bus->handle_ == hspi) {
             return bus;
         }

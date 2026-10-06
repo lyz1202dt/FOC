@@ -4,6 +4,7 @@
 #include "queue.h"
 #include "stm32g4xx_hal.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 
@@ -54,6 +55,9 @@ private:
         TransferMode mode = TransferMode::Interrupt;
     };
 
+    static constexpr std::size_t kMaxBusCount = 4U;
+    static SpiBus* buses_[kMaxBusCount];
+
     static void txCpltCallback(SPI_HandleTypeDef* hspi);
     static void rxCpltCallback(SPI_HandleTypeDef* hspi);
     static void txRxCpltCallback(SPI_HandleTypeDef* hspi);
@@ -64,6 +68,8 @@ private:
     static void abortCpltCallback(SPI_HandleTypeDef* hspi);
 
     static SpiBus* find(SPI_HandleTypeDef* hspi);
+    static void registerBus(SpiBus* bus);
+    static void unregisterBus(SpiBus* bus);
 
     bool inIsr() const;
     bool transferValid(const SPITransfer& transfer) const;

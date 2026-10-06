@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "tim.h"
@@ -20,6 +21,15 @@ public:
     void timer_irq();
 
 private:
+    struct Slot;
+
+    static constexpr std::size_t kMaxInstanceCount = 4U;
+    static Slot slots_[kMaxInstanceCount];
+
+    static Slot* findSlot(TIM_HandleTypeDef* timer);
+    static Slot* ensureSlot(TIM_HandleTypeDef* timer);
+    static void periodElapsedCallback(TIM_HandleTypeDef* timer);
+
     TIM_HandleTypeDef* timer_;
     uint32_t channels_[3];
     TimerUpdateCallback timer_update_cb_{nullptr};

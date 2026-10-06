@@ -1,15 +1,10 @@
 #include "usart.hpp"
 
-#include <cstddef>
 #include <utility>
 
 namespace bsp {
 
-namespace {
-
-using FinishedCallback = std::function<void(const void*, uint16_t)>;
-
-struct TransferState {
+struct UartPort::TransferState {
     const void* tx_data = nullptr;
     uint16_t tx_size = 0;
     FinishedCallback tx_finished;
@@ -24,23 +19,17 @@ struct TransferState {
     bool rx_circular = false;
 };
 
-struct UartSlot {
+struct UartPort::Slot {
     UART_HandleTypeDef* handle = nullptr;
     UartPort* port = nullptr;
     TransferState state;
 };
 
-constexpr std::size_t kMaxUartPortCount = 4U;
-UartSlot g_uart_slots[kMaxUartPortCount]{};
+UartPort::Slot UartPort::slots_[UartPort::kMaxPortCount]{};
 
-HAL_StatusTypeDef invalidIfNull(const void* ptr)
+UartPort::Slot* UartPort::findSlot(UART_HandleTypeDef* huart)
 {
-    return ptr == nullptr ? HAL_ERROR : HAL_OK;
-}
-
-UartSlot* findSlot(UART_HandleTypeDef* huart)
-{
-    for (UartSlot& slot : g_uart_slots) {
+    for (Slot& slot : slots_) {
         if (slot.handle == huart) {
             return &slot;
         }
@@ -48,18 +37,18 @@ UartSlot* findSlot(UART_HandleTypeDef* huart)
     return nullptr;
 }
 
-UartSlot* ensureSlot(UART_HandleTypeDef* huart)
+UartPort::Slot* UartPort::ensureSlot(UART_HandleTypeDef* huart)
 {
     if (huart == nullptr) {
         return nullptr;
     }
 
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot != nullptr) {
         return slot;
     }
 
-    for (UartSlot& empty_slot : g_uart_slots) {
+    for (Slot& empty_slot : slots_) {
         if (empty_slot.handle == nullptr) {
             empty_slot.handle = huart;
             return &empty_slot;
@@ -69,7 +58,7 @@ UartSlot* ensureSlot(UART_HandleTypeDef* huart)
     return nullptr;
 }
 
-void clearTransmitState(TransferState& state)
+void UartPort::clearTransmitState(TransferState& state)
 {
     state.tx_pending = false;
     state.tx_circular = false;
@@ -78,7 +67,7 @@ void clearTransmitState(TransferState& state)
     state.tx_finished = {};
 }
 
-void clearReceiveState(TransferState& state)
+void UartPort::clearReceiveState(TransferState& state)
 {
     state.rx_pending = false;
     state.rx_to_idle = false;
@@ -88,9 +77,9 @@ void clearReceiveState(TransferState& state)
     state.rx_finished = {};
 }
 
-void completeTransmit(UART_HandleTypeDef* huart)
+void UartPort::completeTransmit(UART_HandleTypeDef* huart)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot == nullptr || slot->port == nullptr || !slot->state.tx_pending) {
         return;
     }
@@ -114,9 +103,9 @@ void completeTransmit(UART_HandleTypeDef* huart)
     }
 }
 
-void completeReceive(UART_HandleTypeDef* huart, uint16_t size)
+void UartPort::completeReceive(UART_HandleTypeDef* huart, uint16_t size)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot == nullptr || slot->port == nullptr || !slot->state.rx_pending) {
         return;
     }
@@ -139,9 +128,9 @@ void completeReceive(UART_HandleTypeDef* huart, uint16_t size)
     }
 }
 
-void clearAllStates(UART_HandleTypeDef* huart)
+void UartPort::clearAllStates(UART_HandleTypeDef* huart)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot == nullptr) {
         return;
     }
@@ -149,14 +138,6 @@ void clearAllStates(UART_HandleTypeDef* huart)
     clearTransmitState(slot->state);
     clearReceiveState(slot->state);
 }
-
-bool registered(UART_HandleTypeDef* huart)
-{
-    UartSlot* slot = findSlot(huart);
-    return slot != nullptr && slot->port != nullptr;
-}
-
-} // namespace
 
 bool UartPort::init()
 {
@@ -193,7 +174,7 @@ bool UartPort::init()
         callbacks_registered = false;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (!callbacks_registered || slot == nullptr) {
         return false;
     }
@@ -210,7 +191,8 @@ void UartPort::txHalfCpltCallback(UART_HandleTypeDef* huart)
 
 void UartPort::txCpltCallback(UART_HandleTypeDef* huart)
 {
-    if (registered(huart)) {
+    Slot* slot = findSlot(huart);
+    if (slot != nullptr && slot->port != nullptr) {
         completeTransmit(huart);
     }
 }
@@ -222,7 +204,7 @@ void UartPort::rxHalfCpltCallback(UART_HandleTypeDef* huart)
 
 void UartPort::rxCpltCallback(UART_HandleTypeDef* huart)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot != nullptr && slot->port != nullptr) {
         completeReceive(huart, slot->state.rx_size);
     }
@@ -230,21 +212,23 @@ void UartPort::rxCpltCallback(UART_HandleTypeDef* huart)
 
 void UartPort::errorCallback(UART_HandleTypeDef* huart)
 {
-    if (registered(huart)) {
+    Slot* slot = findSlot(huart);
+    if (slot != nullptr && slot->port != nullptr) {
         clearAllStates(huart);
     }
 }
 
 void UartPort::abortCpltCallback(UART_HandleTypeDef* huart)
 {
-    if (registered(huart)) {
+    Slot* slot = findSlot(huart);
+    if (slot != nullptr && slot->port != nullptr) {
         clearAllStates(huart);
     }
 }
 
 void UartPort::abortTransmitCpltCallback(UART_HandleTypeDef* huart)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot != nullptr && slot->port != nullptr) {
         clearTransmitState(slot->state);
     }
@@ -252,7 +236,7 @@ void UartPort::abortTransmitCpltCallback(UART_HandleTypeDef* huart)
 
 void UartPort::abortReceiveCpltCallback(UART_HandleTypeDef* huart)
 {
-    UartSlot* slot = findSlot(huart);
+    Slot* slot = findSlot(huart);
     if (slot != nullptr && slot->port != nullptr) {
         clearReceiveState(slot->state);
     }
@@ -260,7 +244,8 @@ void UartPort::abortReceiveCpltCallback(UART_HandleTypeDef* huart)
 
 void UartPort::rxEventCallback(UART_HandleTypeDef* huart, uint16_t size)
 {
-    if (registered(huart)) {
+    Slot* slot = findSlot(huart);
+    if (slot != nullptr && slot->port != nullptr) {
         completeReceive(huart, size);
     }
 }
@@ -268,14 +253,14 @@ void UartPort::rxEventCallback(UART_HandleTypeDef* huart, uint16_t size)
 HAL_StatusTypeDef UartPort::transmitIt(
     const void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || invalidIfNull(data) != HAL_OK || size == 0U) {
+    if (handle_ == nullptr || data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->gState != HAL_UART_STATE_READY) {
         return HAL_BUSY;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
@@ -297,14 +282,14 @@ HAL_StatusTypeDef UartPort::transmitIt(
 HAL_StatusTypeDef UartPort::receiveIt(
     void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || invalidIfNull(data) != HAL_OK || size == 0U) {
+    if (handle_ == nullptr || data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->RxState != HAL_UART_STATE_READY) {
         return HAL_BUSY;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
@@ -327,14 +312,14 @@ HAL_StatusTypeDef UartPort::receiveIt(
 HAL_StatusTypeDef UartPort::transmitDma(
     const void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || invalidIfNull(data) != HAL_OK || size == 0U) {
+    if (handle_ == nullptr || data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->gState != HAL_UART_STATE_READY) {
         return HAL_BUSY;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
@@ -356,14 +341,14 @@ HAL_StatusTypeDef UartPort::transmitDma(
 HAL_StatusTypeDef UartPort::receiveDma(
     void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
 {
-    if (handle_ == nullptr || invalidIfNull(data) != HAL_OK || size == 0U) {
+    if (handle_ == nullptr || data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->RxState != HAL_UART_STATE_READY) {
         return HAL_BUSY;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
@@ -389,14 +374,14 @@ HAL_StatusTypeDef UartPort::receiveToIdleDma(
     std::function<void(const void* data, uint16_t size)> finished_cb,
     bool disable_half_transfer_it) const
 {
-    if (handle_ == nullptr || invalidIfNull(data) != HAL_OK || size == 0U) {
+    if (handle_ == nullptr || data == nullptr || size == 0U) {
         return HAL_ERROR;
     }
     if (handle_->RxState != HAL_UART_STATE_READY) {
         return HAL_BUSY;
     }
 
-    UartSlot* slot = ensureSlot(handle_);
+    Slot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
@@ -456,7 +441,7 @@ HAL_StatusTypeDef UartPort::abortTransmit() const
 
     const HAL_StatusTypeDef status = HAL_UART_AbortTransmit(handle_);
     if (status == HAL_OK) {
-        UartSlot* slot = findSlot(handle_);
+        Slot* slot = findSlot(handle_);
         if (slot != nullptr) {
             clearTransmitState(slot->state);
         }
@@ -472,7 +457,7 @@ HAL_StatusTypeDef UartPort::abortReceive() const
 
     const HAL_StatusTypeDef status = HAL_UART_AbortReceive(handle_);
     if (status == HAL_OK) {
-        UartSlot* slot = findSlot(handle_);
+        Slot* slot = findSlot(handle_);
         if (slot != nullptr) {
             clearReceiveState(slot->state);
         }

@@ -9,8 +9,6 @@
 #include "spi.hpp"
 #include "svpwm.hpp"
 #include "tim.hpp"
-#include "uart.hpp"
-#include "usart.hpp"
 
 namespace bsp::hardware {
 
@@ -23,7 +21,6 @@ extern GpioPin dc_cal;
 extern SpiBus spi1;
 extern SpiBus spi3;
 extern I2CBus i2c1;
-extern UartPort uart3;
 extern AdcChannel adc1;
 extern Timer tim7;
 
@@ -43,7 +40,6 @@ Gpio& sensor_spi_cs();
 Gpio& drv8301_enable_gate();
 Gpio& drv8301_fault();
 Gpio& drv8301_dc_cal();
-UARTPort& uart_comm_port();
 
 void time_init();
 uint64_t get_time_us();

@@ -4,6 +4,7 @@
 #include "queue.h"
 #include "stm32g4xx_hal.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 
@@ -50,6 +51,9 @@ private:
         I2CTransfer* transfer = nullptr;
     };
 
+    static constexpr std::size_t kMaxBusCount = 4U;
+    static I2CBus* buses_[kMaxBusCount];
+
     static void masterTxCpltCallback(I2C_HandleTypeDef* hi2c);
     static void masterRxCpltCallback(I2C_HandleTypeDef* hi2c);
     static void memTxCpltCallback(I2C_HandleTypeDef* hi2c);
@@ -58,6 +62,8 @@ private:
     static void abortCpltCallback(I2C_HandleTypeDef* hi2c);
 
     static I2CBus* find(I2C_HandleTypeDef* hi2c);
+    static void registerBus(I2CBus* bus);
+    static void unregisterBus(I2CBus* bus);
 
     bool inIsr() const;
     bool transferValid(const I2CTransfer& transfer) const;

@@ -1,21 +1,19 @@
 #include "tim.hpp"
 
-#include <cstddef>
 #include <utility>
 
-namespace {
+namespace bsp {
 
-struct TimerCallbackSlot {
+struct Timer::CallbackSlot {
     TIM_HandleTypeDef* handle = nullptr;
     bsp::Timer::PeriodElapsedCallback callback;
 };
 
-constexpr std::size_t kMaxTimerCallbackCount = 6U;
-TimerCallbackSlot g_timer_callback_slots[kMaxTimerCallbackCount]{};
+Timer::CallbackSlot Timer::callback_slots_[Timer::kMaxCallbackCount]{};
 
-TimerCallbackSlot* findSlot(TIM_HandleTypeDef* handle)
+Timer::CallbackSlot* Timer::findSlot(TIM_HandleTypeDef* handle)
 {
-    for (TimerCallbackSlot& slot : g_timer_callback_slots) {
+    for (CallbackSlot& slot : callback_slots_) {
         if (slot.handle == handle) {
             return &slot;
         }
@@ -23,18 +21,18 @@ TimerCallbackSlot* findSlot(TIM_HandleTypeDef* handle)
     return nullptr;
 }
 
-TimerCallbackSlot* ensureSlot(TIM_HandleTypeDef* handle)
+Timer::CallbackSlot* Timer::ensureSlot(TIM_HandleTypeDef* handle)
 {
     if (handle == nullptr) {
         return nullptr;
     }
 
-    TimerCallbackSlot* slot = findSlot(handle);
+    CallbackSlot* slot = findSlot(handle);
     if (slot != nullptr) {
         return slot;
     }
 
-    for (TimerCallbackSlot& empty_slot : g_timer_callback_slots) {
+    for (CallbackSlot& empty_slot : callback_slots_) {
         if (empty_slot.handle == nullptr) {
             empty_slot.handle = handle;
             return &empty_slot;
@@ -44,17 +42,13 @@ TimerCallbackSlot* ensureSlot(TIM_HandleTypeDef* handle)
     return nullptr;
 }
 
-void periodElapsedCallback(TIM_HandleTypeDef* handle)
+void Timer::periodElapsedCallback(TIM_HandleTypeDef* handle)
 {
-    TimerCallbackSlot* slot = findSlot(handle);
+    CallbackSlot* slot = findSlot(handle);
     if (slot != nullptr && slot->callback) {
         slot->callback();
     }
 }
-
-} // namespace
-
-namespace bsp {
 
 HAL_StatusTypeDef Timer::registerPeriodElapsedCallback(PeriodElapsedCallback callback) const
 {
@@ -62,13 +56,13 @@ HAL_StatusTypeDef Timer::registerPeriodElapsedCallback(PeriodElapsedCallback cal
         return HAL_ERROR;
     }
 
-    TimerCallbackSlot* slot = ensureSlot(handle_);
+    CallbackSlot* slot = ensureSlot(handle_);
     if (slot == nullptr) {
         return HAL_ERROR;
     }
 
     slot->callback = std::move(callback);
-    return HAL_TIM_RegisterCallback(handle_, HAL_TIM_PERIOD_ELAPSED_CB_ID, &periodElapsedCallback);
+    return HAL_TIM_RegisterCallback(handle_, HAL_TIM_PERIOD_ELAPSED_CB_ID, &Timer::periodElapsedCallback);
 }
 
 HAL_StatusTypeDef Timer::start() const

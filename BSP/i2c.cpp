@@ -2,21 +2,17 @@
 
 #include "task.h"
 
-#include <cstddef>
-
 namespace bsp {
 
-namespace {
-constexpr std::size_t kMaxI2cBusCount = 4U;
-I2CBus* g_i2c_buses[kMaxI2cBusCount]{};
+I2CBus* I2CBus::buses_[I2CBus::kMaxBusCount]{};
 
-void registerBus(I2CBus* bus)
+void I2CBus::registerBus(I2CBus* bus)
 {
     if (bus == nullptr) {
         return;
     }
 
-    for (I2CBus*& slot : g_i2c_buses) {
+    for (I2CBus*& slot : buses_) {
         if (slot == bus) {
             return;
         }
@@ -27,15 +23,14 @@ void registerBus(I2CBus* bus)
     }
 }
 
-void unregisterBus(I2CBus* bus)
+void I2CBus::unregisterBus(I2CBus* bus)
 {
-    for (I2CBus*& slot : g_i2c_buses) {
+    for (I2CBus*& slot : buses_) {
         if (slot == bus) {
             slot = nullptr;
         }
     }
 }
-} // namespace
 
 I2CBus::I2CBus(I2C_HandleTypeDef& handle, uint32_t queue_length)
     : handle_(&handle)
@@ -64,7 +59,7 @@ I2CBus* I2CBus::find(I2C_HandleTypeDef* hi2c)
         return nullptr;
     }
 
-    for (I2CBus* bus : g_i2c_buses) {
+    for (I2CBus* bus : buses_) {
         if (bus != nullptr && bus->handle_ == hi2c) {
             return bus;
         }

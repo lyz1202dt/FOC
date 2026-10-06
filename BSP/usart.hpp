@@ -2,6 +2,7 @@
 
 #include "stm32g4xx_hal.h"
 
+#include <cstddef>
 #include <functional>
 
 namespace bsp {
@@ -32,6 +33,14 @@ public:
     UART_HandleTypeDef* native() const { return handle_; }
 
 private:
+    using FinishedCallback = std::function<void(const void*, uint16_t)>;
+
+    struct TransferState;
+    struct Slot;
+
+    static constexpr std::size_t kMaxPortCount = 4U;
+    static Slot slots_[kMaxPortCount];
+
     static void txHalfCpltCallback(UART_HandleTypeDef* huart);
     static void txCpltCallback(UART_HandleTypeDef* huart);
     static void rxHalfCpltCallback(UART_HandleTypeDef* huart);
@@ -41,6 +50,14 @@ private:
     static void abortTransmitCpltCallback(UART_HandleTypeDef* huart);
     static void abortReceiveCpltCallback(UART_HandleTypeDef* huart);
     static void rxEventCallback(UART_HandleTypeDef* huart, uint16_t size);
+
+    static Slot* findSlot(UART_HandleTypeDef* huart);
+    static Slot* ensureSlot(UART_HandleTypeDef* huart);
+    static void clearTransmitState(TransferState& state);
+    static void clearReceiveState(TransferState& state);
+    static void completeTransmit(UART_HandleTypeDef* huart);
+    static void completeReceive(UART_HandleTypeDef* huart, uint16_t size);
+    static void clearAllStates(UART_HandleTypeDef* huart);
 
     UART_HandleTypeDef* handle_ = nullptr;
 };
