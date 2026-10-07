@@ -5,7 +5,7 @@
 #include <functional>
 
 #include "comm.hpp"
-#include "stm32g4xx_hal.h"
+#include "usart.hpp"
 
 class UartComm : public Comm {
 public:
@@ -17,7 +17,7 @@ public:
     static constexpr std::size_t kRxDmaBufferSize = 256U;
     static constexpr std::size_t kRxRingBufferSize = 512U;
 
-    explicit UartComm(UART_HandleTypeDef& handle);
+    explicit UartComm(bsp::UartPort& port);
 
     UartComm(const UartComm&) = delete;
     UartComm& operator=(const UartComm&) = delete;
@@ -32,33 +32,25 @@ public:
     bool send_pack(void* data, int size) override;
 
 private:
-    static void txCpltCallback(UART_HandleTypeDef* huart);
-    static void rxEventCallback(UART_HandleTypeDef* huart, uint16_t position);
-    static void errorCallback(UART_HandleTypeDef* huart);
+    static void uartTransmitCallback(bsp::UartTransmitEvent& event);
+    static void uartReceiveCallback(bsp::UartReceiveEvent& event);
 
-    static UartComm* findInstance(UART_HandleTypeDef* huart);
-
-    bool bind();
-    bool configureReceiveDma() const;
     bool startReceive();
     void onTransmitComplete();
-    void onReceiveEvent(uint16_t position);
-    void onError();
+    void onReceiveEvent(uint16_t position, HAL_StatusTypeDef status);
 
-    void pushDmaRange(std::size_t begin, std::size_t end);
     void pushRxByte(uint8_t value);
     uint8_t peekRxByte(std::size_t offset) const;
     void dropRxBytes(std::size_t count);
     void parseRxRing();
     bool tryParseFrame();
 
-    UART_HandleTypeDef* handle_ = nullptr;
+    bsp::UartPort* port_ = nullptr;
     std::function<void(void* data, int size)> recv_callback_;
     uint8_t rx_dma_buffer_storage_[kRxDmaBufferSize]{};
     uint8_t* rx_dma_buffer_ = rx_dma_buffer_storage_;
     std::size_t rx_dma_buffer_size_ = kRxDmaBufferSize;
     uint8_t rx_ring_buffer_[kRxRingBufferSize]{};
-    std::size_t rx_dma_last_pos_ = 0U;
     std::size_t rx_ring_head_ = 0U;
     std::size_t rx_ring_tail_ = 0U;
     std::size_t rx_ring_size_ = 0U;
@@ -66,5 +58,5 @@ private:
     uint8_t* send_buffer_ = send_buffer_storage_;
     std::size_t send_buffer_size_ = kFrameMaxSize;
     alignas(uint32_t) uint8_t command_buffer_[kCommandMaxSize]{};
-    bool transmit_busy_ = false;
+    volatile bool transmit_busy_ = false;
 };

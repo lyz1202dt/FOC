@@ -1,73 +1,103 @@
 #pragma once
 
+#include "FreeRTOS.h"
+#include "queue.h"
 #include "stm32g4xx_hal.h"
 
 #include <cstddef>
-#include <functional>
+#include <cstdint>
 
 namespace bsp {
 
+enum class UartTransmitMode : uint8_t {
+    Interrupt,
+    Dma,
+};
+
+enum class UartReceiveMode : uint8_t {
+    Interrupt,
+    Dma,
+    ToIdleDma,
+};
+
+struct UartTransmitEvent {
+    using Callback = void (*)(UartTransmitEvent& event);
+
+    UartTransmitMode mode = UartTransmitMode::Interrupt;
+    const void* data = nullptr;
+    uint16_t size = 0U;
+    void* context = nullptr;
+    HAL_StatusTypeDef status = HAL_OK;
+    uint32_t error_code = HAL_UART_ERROR_NONE;
+    Callback before_cb = nullptr;
+    Callback after_cb = nullptr;
+};
+
+struct UartReceiveEvent {
+    using Callback = void (*)(UartReceiveEvent& event);
+
+    UartReceiveMode mode = UartReceiveMode::Interrupt;
+    void* data = nullptr;
+    uint16_t size = 0U;
+    uint16_t transferred_size = 0U;
+    void* context = nullptr;
+    HAL_StatusTypeDef status = HAL_OK;
+    uint32_t error_code = HAL_UART_ERROR_NONE;
+    Callback before_cb = nullptr;
+    Callback after_cb = nullptr;
+};
+
 class UartPort {
 public:
-    explicit constexpr UartPort(UART_HandleTypeDef& handle) : handle_(&handle) {}
+    explicit UartPort(UART_HandleTypeDef& handle, uint32_t queue_length = 8U);
+    ~UartPort();
+
+    UartPort(const UartPort&) = delete;
+    UartPort& operator=(const UartPort&) = delete;
+
     bool init();
-
-    HAL_StatusTypeDef transmitIt(const void* data, uint16_t size,
-                                 std::function<void(const void* data, uint16_t size)> finished_cb) const;
-    HAL_StatusTypeDef receiveIt(void* data, uint16_t size,
-                                std::function<void(const void* data, uint16_t size)> finished_cb) const;
-
-    void setDmaAddress(const void* tx_data, void* rx_data);
-    void setTransmitDmaAddress(const void* data);
-    void setReceiveDmaAddress(void* data);
-    const void* transmitDmaAddress() const { return tx_dma_address_; }
-    void* receiveDmaAddress() const { return rx_dma_address_; }
-
-    HAL_StatusTypeDef transmitDma(const void* data, uint16_t size,
-                                  std::function<void(const void* data, uint16_t size)> finished_cb) const;
-    HAL_StatusTypeDef receiveDma(void* data, uint16_t size,
-                                 std::function<void(const void* data, uint16_t size)> finished_cb) const;
-    HAL_StatusTypeDef receiveToIdleDma(void* data, uint16_t size,
-                                       std::function<void(const void* data, uint16_t size)> finished_cb,
-                                       bool disable_half_transfer_it = true) const;
-
-    HAL_StatusTypeDef stopDma() const;
-    HAL_StatusTypeDef abort() const;
-    HAL_StatusTypeDef abortTransmit() const;
-    HAL_StatusTypeDef abortReceive() const;
+    HAL_StatusTypeDef transmit(UartTransmitEvent& event);
+    HAL_StatusTypeDef receive(UartReceiveEvent& event);
 
     UART_HandleTypeDef* native() const { return handle_; }
+    bool valid() const { return handle_ != nullptr && tx_queue_ != nullptr && rx_queue_ != nullptr; }
 
 private:
-    using FinishedCallback = std::function<void(const void*, uint16_t)>;
-
-    struct TransferState;
-    struct Slot;
-
     static constexpr std::size_t kMaxPortCount = 4U;
-    static Slot slots_[kMaxPortCount];
+    static UartPort* ports_[kMaxPortCount];
 
-    static void txHalfCpltCallback(UART_HandleTypeDef* huart);
     static void txCpltCallback(UART_HandleTypeDef* huart);
-    static void rxHalfCpltCallback(UART_HandleTypeDef* huart);
     static void rxCpltCallback(UART_HandleTypeDef* huart);
     static void errorCallback(UART_HandleTypeDef* huart);
-    static void abortCpltCallback(UART_HandleTypeDef* huart);
-    static void abortTransmitCpltCallback(UART_HandleTypeDef* huart);
-    static void abortReceiveCpltCallback(UART_HandleTypeDef* huart);
     static void rxEventCallback(UART_HandleTypeDef* huart, uint16_t size);
 
-    static Slot* findSlot(UART_HandleTypeDef* huart);
-    static Slot* ensureSlot(UART_HandleTypeDef* huart);
-    static void clearTransmitState(TransferState& state);
-    static void clearReceiveState(TransferState& state);
-    static void completeTransmit(UART_HandleTypeDef* huart);
-    static void completeReceive(UART_HandleTypeDef* huart, uint16_t size);
-    static void clearAllStates(UART_HandleTypeDef* huart);
+    static UartPort* find(UART_HandleTypeDef* huart);
+    static void registerPort(UartPort* port);
+    static void unregisterPort(UartPort* port);
+
+    bool startNextTransmit(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
+    bool startNextReceive(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
+    void completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next);
+    void completeReceive(HAL_StatusTypeDef status,
+                         uint16_t transferred_size,
+                         bool from_isr,
+                         bool start_next);
 
     UART_HandleTypeDef* handle_ = nullptr;
-    const void* tx_dma_address_ = nullptr;
-    void* rx_dma_address_ = nullptr;
+    QueueHandle_t tx_queue_ = nullptr;
+    QueueHandle_t rx_queue_ = nullptr;
+    UartTransmitEvent active_tx_ = {};
+    UartReceiveEvent active_rx_ = {};
+    bool tx_active_ = false;
+    bool rx_active_ = false;
 };
 
 } // namespace bsp
+
+namespace BSP {
+using UartPort = bsp::UartPort;
+using UartReceiveEvent = bsp::UartReceiveEvent;
+using UartReceiveMode = bsp::UartReceiveMode;
+using UartTransmitEvent = bsp::UartTransmitEvent;
+using UartTransmitMode = bsp::UartTransmitMode;
+} // namespace BSP

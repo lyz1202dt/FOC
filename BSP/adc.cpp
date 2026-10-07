@@ -64,14 +64,10 @@ void AdcChannel::setDmaAddress(uint32_t* data)
     dma_address_ = data;
 }
 
+
 HAL_StatusTypeDef AdcChannel::startDma(uint32_t length, Callback cplt) const
 {
-    return startDma(nullptr, length, std::move(cplt));
-}
-
-HAL_StatusTypeDef AdcChannel::startDma(uint32_t* data, uint32_t length, Callback cplt) const
-{
-    uint32_t* dma_data = dma_address_ != nullptr ? dma_address_ : data;
+    uint32_t* dma_data = dma_address_;
     if (handle_ == nullptr || dma_data == nullptr || length == 0U) {
         return HAL_ERROR;
     }

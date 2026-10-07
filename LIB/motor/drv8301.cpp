@@ -282,8 +282,9 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
 
     uint16_t raw_b = 0U;
     uint16_t raw_c = 0U;
-    if (!measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) ||
-        !measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
+    const uint64_t now = BSP::get_time_us();
+    if (!measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs, now) ||
+        !measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs, now)) {
         return false;
     }
 
@@ -295,7 +296,7 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
 
 bool DRV8301::get_vbus_voltage(float& vol) {
     uint16_t raw_vbus = 0U;
-    if (!measure_.get_raw_adc_value(BSP::Measure::DCBusVol, raw_vbus, kSampleFreshnessUs)) {
+    if (!measure_.get_raw_adc_value(BSP::Measure::DCBusVol, raw_vbus, kSampleFreshnessUs, BSP::get_time_us())) {
         return false;
     }
 
@@ -372,8 +373,9 @@ bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
     while (count < samples && (HAL_GetTick() - start_ms) <= timeout_ms) {
         uint16_t raw_b = 0U;
         uint16_t raw_c = 0U;
-        if (measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs) &&
-            measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs)) {
+        const uint64_t now = BSP::get_time_us();
+        if (measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs, now) &&
+            measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs, now)) {
             sum_b += raw_b;
             sum_c += raw_c;
             ++count;

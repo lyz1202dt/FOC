@@ -17,7 +17,7 @@ constexpr uint16_t kAngleComRegister = 0x3FFFU;
 constexpr float kTwoPi = 6.2831853071795864769f;
 constexpr float kCountsPerTurn = 16384.0f;
 
-constexpr bsp::SPITransfer::TransferOptions kSpiOptions{
+constexpr bsp::SpiHardwareParams kSpiOptions{
     SPI_DATASIZE_16BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB};
 
 } // namespace
@@ -155,18 +155,19 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
     pending_response_ = command_response;
     in_flight_ = true;
 
-    transfer_.setDmaAddress(tx_word, rx_word);
+    transfer_.tx_data = tx_word;
+    transfer_.rx_data = rx_word;
     transfer_.size = 1U;
-    transfer_.param = this;
-    transfer_.options = kSpiOptions;
-    transfer_.pre_transmit_cb = [](bsp::SPITransfer*) {
+    transfer_.context = this;
+    transfer_.hardware = kSpiOptions;
+    transfer_.before_cb = [](bsp::SPITransfer&) {
         BSP::sensor_spi_cs().write(false);
     };
-    transfer_.transmited_cb = [](bsp::SPITransfer* transfer) {
+    transfer_.after_cb = [](bsp::SPITransfer& transfer) {
         BSP::sensor_spi_cs().write(true);
         AS5047P::on_transfer_complete(
-            transfer->param,
-            transfer->status == HAL_OK && transfer->error_code == HAL_SPI_ERROR_NONE);
+            transfer.context,
+            transfer.status == bsp::SpiTransferStatus::Ok);
     };
 
     const bool accepted = BSP::sensor_spi_bus().transferDma(transfer_);

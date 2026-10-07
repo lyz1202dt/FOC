@@ -11,14 +11,6 @@ constexpr std::size_t kHeaderOffset = 0U;
 constexpr std::size_t kLengthOffset = 1U;
 constexpr std::size_t kCommandOffset = 2U;
 constexpr std::size_t kPayloadOffset = UartComm::kFrameHeadSize;
-constexpr std::size_t kMaxUartCommCount = 4U;
-
-struct UartCommSlot {
-    UART_HandleTypeDef* handle = nullptr;
-    UartComm* comm = nullptr;
-};
-
-UartCommSlot g_uart_comm_slots[kMaxUartCommCount]{};
 
 uint16_t crc16_modbus(const uint8_t* data, std::size_t size)
 {
@@ -62,8 +54,8 @@ void write_u32_le(uint8_t* data, uint32_t value)
 }
 } // namespace
 
-UartComm::UartComm(UART_HandleTypeDef& handle)
-    : handle_(&handle)
+UartComm::UartComm(bsp::UartPort& port)
+    : port_(&port)
 {
 }
 
@@ -79,10 +71,6 @@ bool UartComm::set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t*
         return false;
     }
 
-    if (handle_ != nullptr && handle_->RxState != HAL_UART_STATE_READY) {
-        return false;
-    }
-
     rx_dma_buffer_ = rx_buffer;
     rx_dma_buffer_size_ = rx_size;
     send_buffer_ = tx_buffer;
@@ -92,33 +80,33 @@ bool UartComm::set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t*
 
 bool UartComm::init()
 {
-    if (handle_ == nullptr || !bind() || !configureReceiveDma()) {
+    if (port_ == nullptr || !port_->valid() || port_->native() == nullptr || port_->native()->hdmarx == nullptr) {
         return false;
     }
 
-    bool callbacks_registered = true;
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_TX_COMPLETE_CB_ID, &UartComm::txCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ERROR_CB_ID, &UartComm::errorCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterRxEventCallback(handle_, &UartComm::rxEventCallback) != HAL_OK) {
-        callbacks_registered = false;
+    if (!port_->init()) {
+        return false;
     }
 
-    rx_dma_last_pos_ = 0U;
+    DMA_HandleTypeDef* rx_dma = port_->native()->hdmarx;
+    if (rx_dma->Init.Mode != DMA_NORMAL) {
+        rx_dma->Init.Mode = DMA_NORMAL;
+        if (HAL_DMA_Init(rx_dma) != HAL_OK) {
+            return false;
+        }
+    }
+
     rx_ring_head_ = 0U;
     rx_ring_tail_ = 0U;
     rx_ring_size_ = 0U;
     transmit_busy_ = false;
 
-    return callbacks_registered && startReceive();
+    return startReceive();
 }
 
 bool UartComm::send_pack(void* data, int size)
 {
-    if (handle_ == nullptr || data == nullptr || size < static_cast<int>(sizeof(Command))) {
+    if (port_ == nullptr || data == nullptr || size < static_cast<int>(sizeof(Command))) {
         return false;
     }
 
@@ -142,9 +130,7 @@ bool UartComm::send_pack(void* data, int size)
 
     const uint16_t frame_size = static_cast<uint16_t>(kFrameHeadSize + payload_size + kFrameCrcSize);
     if (frame_size > send_buffer_size_) {
-        __disable_irq();
-        transmit_busy_ = false;
-        __enable_irq();
+        onTransmitComplete();
         return false;
     }
 
@@ -158,95 +144,50 @@ bool UartComm::send_pack(void* data, int size)
     const uint16_t crc = crc16_modbus(send_buffer_, frame_size - kFrameCrcSize);
     write_u16_le(&send_buffer_[frame_size - kFrameCrcSize], crc);
 
-    const HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(handle_, send_buffer_, frame_size);
-    if (status != HAL_OK) {
-        __disable_irq();
-        transmit_busy_ = false;
-        __enable_irq();
+    bsp::UartTransmitEvent event = {};
+    event.mode = bsp::UartTransmitMode::Dma;
+    event.data = send_buffer_;
+    event.size = frame_size;
+    event.context = this;
+    event.after_cb = &UartComm::uartTransmitCallback;
+
+    if (port_->transmit(event) != HAL_OK) {
+        onTransmitComplete();
         return false;
     }
 
     return true;
 }
 
-void UartComm::txCpltCallback(UART_HandleTypeDef* huart)
+void UartComm::uartTransmitCallback(bsp::UartTransmitEvent& event)
 {
-    UartComm* comm = findInstance(huart);
+    auto* comm = static_cast<UartComm*>(event.context);
     if (comm != nullptr) {
         comm->onTransmitComplete();
     }
 }
 
-void UartComm::rxEventCallback(UART_HandleTypeDef* huart, uint16_t position)
+void UartComm::uartReceiveCallback(bsp::UartReceiveEvent& event)
 {
-    UartComm* comm = findInstance(huart);
+    auto* comm = static_cast<UartComm*>(event.context);
     if (comm != nullptr) {
-        comm->onReceiveEvent(position);
+        comm->onReceiveEvent(event.transferred_size, event.status);
     }
-}
-
-void UartComm::errorCallback(UART_HandleTypeDef* huart)
-{
-    UartComm* comm = findInstance(huart);
-    if (comm != nullptr) {
-        comm->onError();
-    }
-}
-
-UartComm* UartComm::findInstance(UART_HandleTypeDef* huart)
-{
-    for (UartCommSlot& slot : g_uart_comm_slots) {
-        if (slot.handle == huart) {
-            return slot.comm;
-        }
-    }
-    return nullptr;
-}
-
-bool UartComm::bind()
-{
-    for (UartCommSlot& slot : g_uart_comm_slots) {
-        if (slot.handle == handle_) {
-            slot.comm = this;
-            return true;
-        }
-    }
-
-    for (UartCommSlot& slot : g_uart_comm_slots) {
-        if (slot.handle == nullptr) {
-            slot.handle = handle_;
-            slot.comm = this;
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool UartComm::configureReceiveDma() const
-{
-    if (handle_->hdmarx == nullptr) {
-        return false;
-    }
-
-    if (handle_->hdmarx->Init.Mode == DMA_CIRCULAR) {
-        return true;
-    }
-
-    handle_->hdmarx->Init.Mode = DMA_CIRCULAR;
-    return HAL_DMA_Init(handle_->hdmarx) == HAL_OK;
 }
 
 bool UartComm::startReceive()
 {
-    if (handle_ == nullptr || handle_->hdmarx == nullptr) {
+    if (port_ == nullptr) {
         return false;
     }
 
-    rx_dma_last_pos_ = 0U;
-    const HAL_StatusTypeDef status =
-        HAL_UARTEx_ReceiveToIdle_DMA(handle_, rx_dma_buffer_, static_cast<uint16_t>(rx_dma_buffer_size_));
-    return status == HAL_OK;
+    bsp::UartReceiveEvent event = {};
+    event.mode = bsp::UartReceiveMode::ToIdleDma;
+    event.data = rx_dma_buffer_;
+    event.size = static_cast<uint16_t>(rx_dma_buffer_size_);
+    event.context = this;
+    event.after_cb = &UartComm::uartReceiveCallback;
+    return port_->receive(event) == HAL_OK;
 }
 
 void UartComm::onTransmitComplete()
@@ -256,42 +197,24 @@ void UartComm::onTransmitComplete()
     __enable_irq();
 }
 
-void UartComm::onReceiveEvent(uint16_t position)
+void UartComm::onReceiveEvent(uint16_t position, HAL_StatusTypeDef status)
 {
+    if (status != HAL_OK) {
+        (void)startReceive();
+        return;
+    }
+
     std::size_t current_pos = position;
     if (current_pos > rx_dma_buffer_size_) {
         current_pos = rx_dma_buffer_size_;
     }
 
-    if (current_pos > rx_dma_last_pos_) {
-        pushDmaRange(rx_dma_last_pos_, current_pos);
-    } else if (current_pos < rx_dma_last_pos_) {
-        pushDmaRange(rx_dma_last_pos_, rx_dma_buffer_size_);
-        pushDmaRange(0U, current_pos);
-    }
-
-    rx_dma_last_pos_ = current_pos;
-    parseRxRing();
-}
-
-void UartComm::onError()
-{
-    if (handle_ != nullptr && handle_->gState == HAL_UART_STATE_READY) {
-        __disable_irq();
-        transmit_busy_ = false;
-        __enable_irq();
-    }
-
-    if (handle_ != nullptr && handle_->RxState == HAL_UART_STATE_READY) {
-        (void)startReceive();
-    }
-}
-
-void UartComm::pushDmaRange(std::size_t begin, std::size_t end)
-{
-    for (std::size_t i = begin; i < end; ++i) {
+    for (std::size_t i = 0U; i < current_pos; ++i) {
         pushRxByte(rx_dma_buffer_[i]);
     }
+
+    (void)startReceive();
+    parseRxRing();
 }
 
 void UartComm::pushRxByte(uint8_t value)

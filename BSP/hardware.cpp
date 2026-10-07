@@ -1,10 +1,12 @@
 #include "hardware.hpp"
 
 #include "adc.h"
+#include "fdcan.h"
 #include "gpio.h"
 #include "i2c.h"
 #include "spi.h"
 #include "tim.h"
+#include "usart.h"
 
 namespace bsp::hardware {
 
@@ -17,6 +19,8 @@ GpioPin dc_cal(DC_CAL_GPIO_Port, DC_CAL_Pin);
 SpiBus spi1(hspi1);
 SpiBus spi3(hspi3);
 I2CBus i2c1(hi2c1);
+UartPort uart3(huart3);
+FdcanBus fdcan1(hfdcan1);
 AdcChannel adc1(hadc1);
 Timer tim7(htim7);
 
@@ -26,6 +30,7 @@ HAL_StatusTypeDef init()
     ok = spi1.init() && ok;
     ok = spi3.init() && ok;
     ok = i2c1.init() && ok;
+    ok = uart3.init() && ok;
     return ok ? HAL_OK : HAL_ERROR;
 }
 
@@ -55,6 +60,16 @@ SPIBus& sensor_spi_bus()
     return bsp::hardware::spi3;
 }
 
+UartPort& uart_comm_port()
+{
+    return bsp::hardware::uart3;
+}
+
+FdcanBus& fdcan1_bus()
+{
+    return bsp::hardware::fdcan1;
+}
+
 SVPWM& tim1_svpwm()
 {
     return g_tim1_svpwm;
@@ -63,6 +78,26 @@ SVPWM& tim1_svpwm()
 Measure& adc_measure()
 {
     return g_adc_measure;
+}
+
+bool adc_measure_start()
+{
+    g_adc_measure.reset();
+    return bsp::hardware::adc1.injectedStartIt([]() {
+        const uint64_t now = BSP::get_time_us();
+        g_adc_measure.set_raw_adc_value(
+            Measure::PhraseB,
+            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_1)),
+            now);
+        g_adc_measure.set_raw_adc_value(
+            Measure::PhraseC,
+            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_2)),
+            now);
+        g_adc_measure.set_raw_adc_value(
+            Measure::DCBusVol,
+            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_3)),
+            now);
+    }) == HAL_OK;
 }
 
 Gpio& ic_spi_cs()

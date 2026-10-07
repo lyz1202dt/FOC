@@ -18,7 +18,6 @@ public:
     uint32_t* dmaAddress() const { return dma_address_; }
 
     HAL_StatusTypeDef startDma(uint32_t length, Callback cplt = nullptr) const;
-    HAL_StatusTypeDef startDma(uint32_t* data, uint32_t length, Callback cplt = nullptr) const;
     HAL_StatusTypeDef stopDma() const;
 
     HAL_StatusTypeDef injectedStartIt(Callback cplt = nullptr) const;

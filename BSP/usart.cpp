@@ -1,487 +1,372 @@
 #include "usart.hpp"
 
-#include <utility>
+#include "task.h"
 
 namespace bsp {
 
-struct UartPort::TransferState {
-    const void* tx_data = nullptr;
-    uint16_t tx_size = 0;
-    FinishedCallback tx_finished;
-    bool tx_pending = false;
-    bool tx_circular = false;
+UartPort* UartPort::ports_[UartPort::kMaxPortCount]{};
 
-    void* rx_data = nullptr;
-    uint16_t rx_size = 0;
-    FinishedCallback rx_finished;
-    bool rx_pending = false;
-    bool rx_to_idle = false;
-    bool rx_circular = false;
-};
-
-struct UartPort::Slot {
-    UART_HandleTypeDef* handle = nullptr;
-    UartPort* port = nullptr;
-    TransferState state;
-};
-
-UartPort::Slot UartPort::slots_[UartPort::kMaxPortCount]{};
-
-UartPort::Slot* UartPort::findSlot(UART_HandleTypeDef* huart)
+UartPort::UartPort(UART_HandleTypeDef& handle, uint32_t queue_length)
+    : handle_(&handle)
 {
-    for (Slot& slot : slots_) {
-        if (slot.handle == huart) {
-            return &slot;
-        }
+    if (queue_length != 0U) {
+        tx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
+                                 sizeof(UartTransmitEvent));
+        rx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
+                                 sizeof(UartReceiveEvent));
     }
-    return nullptr;
+
+    if (tx_queue_ != nullptr && rx_queue_ != nullptr) {
+        registerPort(this);
+    }
 }
 
-UartPort::Slot* UartPort::ensureSlot(UART_HandleTypeDef* huart)
+UartPort::~UartPort()
+{
+    unregisterPort(this);
+    if (tx_queue_ != nullptr) {
+        vQueueDelete(tx_queue_);
+        tx_queue_ = nullptr;
+    }
+    if (rx_queue_ != nullptr) {
+        vQueueDelete(rx_queue_);
+        rx_queue_ = nullptr;
+    }
+}
+
+void UartPort::registerPort(UartPort* port)
+{
+    if (port == nullptr) {
+        return;
+    }
+
+    for (UartPort*& slot : ports_) {
+        if (slot == port) {
+            return;
+        }
+        if (slot == nullptr) {
+            slot = port;
+            return;
+        }
+    }
+}
+
+void UartPort::unregisterPort(UartPort* port)
+{
+    for (UartPort*& slot : ports_) {
+        if (slot == port) {
+            slot = nullptr;
+        }
+    }
+}
+
+UartPort* UartPort::find(UART_HandleTypeDef* huart)
 {
     if (huart == nullptr) {
         return nullptr;
     }
 
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr) {
-        return slot;
-    }
-
-    for (Slot& empty_slot : slots_) {
-        if (empty_slot.handle == nullptr) {
-            empty_slot.handle = huart;
-            return &empty_slot;
+    for (UartPort* port : ports_) {
+        if (port != nullptr && port->handle_ == huart) {
+            return port;
         }
     }
-
     return nullptr;
 }
 
-void UartPort::clearTransmitState(TransferState& state)
+bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task_woken)
 {
-    state.tx_pending = false;
-    state.tx_circular = false;
-    state.tx_data = nullptr;
-    state.tx_size = 0;
-    state.tx_finished = {};
-}
-
-void UartPort::clearReceiveState(TransferState& state)
-{
-    state.rx_pending = false;
-    state.rx_to_idle = false;
-    state.rx_circular = false;
-    state.rx_data = nullptr;
-    state.rx_size = 0;
-    state.rx_finished = {};
-}
-
-void UartPort::completeTransmit(UART_HandleTypeDef* huart)
-{
-    Slot* slot = findSlot(huart);
-    if (slot == nullptr || slot->port == nullptr || !slot->state.tx_pending) {
-        return;
+    if (tx_active_) {
+        return false;
     }
 
-    TransferState& state = slot->state;
-    const void* data = state.tx_data;
-    const uint16_t size = state.tx_size;
+    bool has_transfer = false;
+    if (from_isr) {
+        const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+        has_transfer =
+            xQueueReceiveFromISR(tx_queue_, &active_tx_, higher_priority_task_woken) == pdPASS;
+        tx_active_ = has_transfer;
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+    } else {
+        taskENTER_CRITICAL();
+        has_transfer = xQueueReceive(tx_queue_, &active_tx_, 0U) == pdPASS;
+        tx_active_ = has_transfer;
+        taskEXIT_CRITICAL();
+    }
 
-    if (state.tx_circular) {
-        if (state.tx_finished) {
-            state.tx_finished(data, size);
+    if (!has_transfer) {
+        return false;
+    }
+
+    if (active_tx_.data == nullptr || active_tx_.size == 0U) {
+        completeTransmit(HAL_ERROR, from_isr, true);
+        return false;
+    }
+
+    active_tx_.status = HAL_BUSY;
+    if (active_tx_.before_cb != nullptr) {
+        active_tx_.before_cb(active_tx_);
+    }
+
+    const auto* data = static_cast<const uint8_t*>(active_tx_.data);
+    const HAL_StatusTypeDef status =
+        active_tx_.mode == UartTransmitMode::Dma
+            ? HAL_UART_Transmit_DMA(handle_, data, active_tx_.size)
+            : HAL_UART_Transmit_IT(handle_, data, active_tx_.size);
+    if (status == HAL_OK && active_tx_.mode == UartTransmitMode::Dma &&
+        handle_->hdmatx != nullptr) {
+        __HAL_DMA_DISABLE_IT(handle_->hdmatx, DMA_IT_HT);
+    }
+    if (status != HAL_OK) {
+        completeTransmit(status, from_isr, true);
+        return false;
+    }
+
+    return true;
+}
+
+bool UartPort::startNextReceive(bool from_isr, BaseType_t* higher_priority_task_woken)
+{
+    if (rx_active_) {
+        return false;
+    }
+
+    bool has_transfer = false;
+    if (from_isr) {
+        const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+        has_transfer =
+            xQueueReceiveFromISR(rx_queue_, &active_rx_, higher_priority_task_woken) == pdPASS;
+        rx_active_ = has_transfer;
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+    } else {
+        taskENTER_CRITICAL();
+        has_transfer = xQueueReceive(rx_queue_, &active_rx_, 0U) == pdPASS;
+        rx_active_ = has_transfer;
+        taskEXIT_CRITICAL();
+    }
+
+    if (!has_transfer) {
+        return false;
+    }
+
+    if (active_rx_.data == nullptr || active_rx_.size == 0U) {
+        completeReceive(HAL_ERROR, 0U, from_isr, true);
+        return false;
+    }
+
+    active_rx_.status = HAL_BUSY;
+    if (active_rx_.before_cb != nullptr) {
+        active_rx_.before_cb(active_rx_);
+    }
+
+    auto* data = static_cast<uint8_t*>(active_rx_.data);
+    const bool use_dma = active_rx_.mode != UartReceiveMode::Interrupt;
+    HAL_StatusTypeDef status = HAL_ERROR;
+    if (active_rx_.mode == UartReceiveMode::ToIdleDma) {
+        status = HAL_UARTEx_ReceiveToIdle_DMA(handle_, data, active_rx_.size);
+    } else if (active_rx_.mode == UartReceiveMode::Dma) {
+        status = HAL_UART_Receive_DMA(handle_, data, active_rx_.size);
+    } else {
+        status = HAL_UART_Receive_IT(handle_, data, active_rx_.size);
+    }
+    if (status == HAL_OK && use_dma && handle_->hdmarx != nullptr) {
+        __HAL_DMA_DISABLE_IT(handle_->hdmarx, DMA_IT_HT);
+    }
+    if (status != HAL_OK) {
+        completeReceive(status, 0U, from_isr, true);
+        return false;
+    }
+
+    return true;
+}
+
+void UartPort::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next)
+{
+    if (tx_active_) {
+        active_tx_.status = status;
+        active_tx_.error_code = HAL_UART_GetError(handle_);
+        UartTransmitEvent finished_event = active_tx_;
+        if (from_isr) {
+            const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+            tx_active_ = false;
+            portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+        } else {
+            taskENTER_CRITICAL();
+            tx_active_ = false;
+            taskEXIT_CRITICAL();
         }
-        return;
-    }
-
-    FinishedCallback finished_cb = std::move(state.tx_finished);
-    clearTransmitState(state);
-
-    if (finished_cb) {
-        finished_cb(data, size);
-    }
-}
-
-void UartPort::completeReceive(UART_HandleTypeDef* huart, uint16_t size)
-{
-    Slot* slot = findSlot(huart);
-    if (slot == nullptr || slot->port == nullptr || !slot->state.rx_pending) {
-        return;
-    }
-
-    TransferState& state = slot->state;
-    void* data = state.rx_data;
-
-    if (state.rx_circular) {
-        if (state.rx_finished) {
-            state.rx_finished(data, size);
+        if (finished_event.after_cb != nullptr) {
+            finished_event.after_cb(finished_event);
         }
-        return;
     }
 
-    FinishedCallback finished_cb = std::move(state.rx_finished);
-    clearReceiveState(state);
-
-    if (finished_cb) {
-        finished_cb(data, size);
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    if (start_next) {
+        (void)startNextTransmit(from_isr, &higher_priority_task_woken);
+    }
+    if (from_isr) {
+        portYIELD_FROM_ISR(higher_priority_task_woken);
     }
 }
 
-void UartPort::clearAllStates(UART_HandleTypeDef* huart)
+void UartPort::completeReceive(HAL_StatusTypeDef status,
+                               uint16_t transferred_size,
+                               bool from_isr,
+                               bool start_next)
 {
-    Slot* slot = findSlot(huart);
-    if (slot == nullptr) {
-        return;
+    if (rx_active_) {
+        active_rx_.status = status;
+        active_rx_.error_code = HAL_UART_GetError(handle_);
+        active_rx_.transferred_size = transferred_size;
+        UartReceiveEvent finished_event = active_rx_;
+        if (from_isr) {
+            const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+            rx_active_ = false;
+            portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+        } else {
+            taskENTER_CRITICAL();
+            rx_active_ = false;
+            taskEXIT_CRITICAL();
+        }
+        if (finished_event.after_cb != nullptr) {
+            finished_event.after_cb(finished_event);
+        }
     }
 
-    clearTransmitState(slot->state);
-    clearReceiveState(slot->state);
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    if (start_next) {
+        (void)startNextReceive(from_isr, &higher_priority_task_woken);
+    }
+    if (from_isr) {
+        portYIELD_FROM_ISR(higher_priority_task_woken);
+    }
 }
 
 bool UartPort::init()
 {
-    if (handle_ == nullptr) {
+    if (!valid()) {
         return false;
     }
 
-    bool callbacks_registered = true;
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_TX_HALFCOMPLETE_CB_ID, &UartPort::txHalfCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
+    tx_active_ = false;
+    rx_active_ = false;
+    xQueueReset(tx_queue_);
+    xQueueReset(rx_queue_);
+
+#if (USE_HAL_UART_REGISTER_CALLBACKS == 1)
+    bool registered = true;
+
+    if (HAL_UART_RegisterCallback(handle_, HAL_UART_TX_COMPLETE_CB_ID,
+                                  &UartPort::txCpltCallback) != HAL_OK) {
+        registered = false;
     }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_TX_COMPLETE_CB_ID, &UartPort::txCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
+    if (HAL_UART_RegisterCallback(handle_, HAL_UART_RX_COMPLETE_CB_ID,
+                                  &UartPort::rxCpltCallback) != HAL_OK) {
+        registered = false;
     }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_RX_HALFCOMPLETE_CB_ID, &UartPort::rxHalfCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_RX_COMPLETE_CB_ID, &UartPort::rxCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ERROR_CB_ID, &UartPort::errorCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ABORT_COMPLETE_CB_ID, &UartPort::abortCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ABORT_TRANSMIT_COMPLETE_CB_ID, &UartPort::abortTransmitCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
-    }
-    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ABORT_RECEIVE_COMPLETE_CB_ID, &UartPort::abortReceiveCpltCallback) != HAL_OK) {
-        callbacks_registered = false;
+    if (HAL_UART_RegisterCallback(handle_, HAL_UART_ERROR_CB_ID,
+                                  &UartPort::errorCallback) != HAL_OK) {
+        registered = false;
     }
     if (HAL_UART_RegisterRxEventCallback(handle_, &UartPort::rxEventCallback) != HAL_OK) {
-        callbacks_registered = false;
+        registered = false;
     }
 
-    Slot* slot = ensureSlot(handle_);
-    if (!callbacks_registered || slot == nullptr) {
-        return false;
+    if (registered) {
+        registerPort(this);
     }
-
-    slot->port = this;
-    clearAllStates(handle_);
-    return true;
+    return registered;
+#else
+    return false;
+#endif
 }
 
-void UartPort::txHalfCpltCallback(UART_HandleTypeDef* huart)
+HAL_StatusTypeDef UartPort::transmit(UartTransmitEvent& event)
 {
-    (void)huart;
+    if (!valid()) {
+        return HAL_ERROR;
+    }
+
+    event.status = HAL_OK;
+    event.error_code = HAL_UART_ERROR_NONE;
+
+    if (__get_IPSR() != 0U) {
+        BaseType_t higher_priority_task_woken = pdFALSE;
+        if (xQueueSendFromISR(tx_queue_, &event, &higher_priority_task_woken) != pdPASS) {
+            return HAL_BUSY;
+        }
+        (void)startNextTransmit(true, &higher_priority_task_woken);
+        portYIELD_FROM_ISR(higher_priority_task_woken);
+        return HAL_OK;
+    }
+
+    if (xQueueSend(tx_queue_, &event, 0U) != pdPASS) {
+        return HAL_BUSY;
+    }
+
+    (void)startNextTransmit(false);
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef UartPort::receive(UartReceiveEvent& event)
+{
+    if (!valid()) {
+        return HAL_ERROR;
+    }
+
+    event.status = HAL_OK;
+    event.error_code = HAL_UART_ERROR_NONE;
+    event.transferred_size = 0U;
+
+    if (__get_IPSR() != 0U) {
+        BaseType_t higher_priority_task_woken = pdFALSE;
+        if (xQueueSendFromISR(rx_queue_, &event, &higher_priority_task_woken) != pdPASS) {
+            return HAL_BUSY;
+        }
+        (void)startNextReceive(true, &higher_priority_task_woken);
+        portYIELD_FROM_ISR(higher_priority_task_woken);
+        return HAL_OK;
+    }
+
+    if (xQueueSend(rx_queue_, &event, 0U) != pdPASS) {
+        return HAL_BUSY;
+    }
+
+    (void)startNextReceive(false);
+    return HAL_OK;
 }
 
 void UartPort::txCpltCallback(UART_HandleTypeDef* huart)
 {
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        completeTransmit(huart);
+    UartPort* port = find(huart);
+    if (port != nullptr) {
+        port->completeTransmit(HAL_OK, true, true);
     }
-}
-
-void UartPort::rxHalfCpltCallback(UART_HandleTypeDef* huart)
-{
-    (void)huart;
 }
 
 void UartPort::rxCpltCallback(UART_HandleTypeDef* huart)
 {
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        completeReceive(huart, slot->state.rx_size);
+    UartPort* port = find(huart);
+    if (port != nullptr) {
+        port->completeReceive(HAL_OK, port->active_rx_.size, true, true);
     }
 }
 
 void UartPort::errorCallback(UART_HandleTypeDef* huart)
 {
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        clearAllStates(huart);
-    }
-}
-
-void UartPort::abortCpltCallback(UART_HandleTypeDef* huart)
-{
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        clearAllStates(huart);
-    }
-}
-
-void UartPort::abortTransmitCpltCallback(UART_HandleTypeDef* huart)
-{
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        clearTransmitState(slot->state);
-    }
-}
-
-void UartPort::abortReceiveCpltCallback(UART_HandleTypeDef* huart)
-{
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        clearReceiveState(slot->state);
+    UartPort* port = find(huart);
+    if (port != nullptr) {
+        port->completeTransmit(HAL_ERROR, true, true);
+        port->completeReceive(HAL_ERROR, 0U, true, true);
     }
 }
 
 void UartPort::rxEventCallback(UART_HandleTypeDef* huart, uint16_t size)
 {
-    Slot* slot = findSlot(huart);
-    if (slot != nullptr && slot->port != nullptr) {
-        completeReceive(huart, size);
+    UartPort* port = find(huart);
+    if (port != nullptr) {
+        port->completeReceive(HAL_OK, size, true, true);
     }
-}
-
-HAL_StatusTypeDef UartPort::transmitIt(
-    const void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
-{
-    if (handle_ == nullptr || data == nullptr || size == 0U) {
-        return HAL_ERROR;
-    }
-    if (handle_->gState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-
-    Slot* slot = ensureSlot(handle_);
-    if (slot == nullptr) {
-        return HAL_ERROR;
-    }
-
-    TransferState& state = slot->state;
-    state.tx_data = data;
-    state.tx_size = size;
-    state.tx_finished = std::move(finished_cb);
-    state.tx_pending = true;
-    state.tx_circular = false;
-
-    const HAL_StatusTypeDef status = HAL_UART_Transmit_IT(handle_, static_cast<const uint8_t*>(data), size);
-    if (status != HAL_OK) {
-        clearTransmitState(state);
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::receiveIt(
-    void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
-{
-    if (handle_ == nullptr || data == nullptr || size == 0U) {
-        return HAL_ERROR;
-    }
-    if (handle_->RxState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-
-    Slot* slot = ensureSlot(handle_);
-    if (slot == nullptr) {
-        return HAL_ERROR;
-    }
-
-    TransferState& state = slot->state;
-    state.rx_data = data;
-    state.rx_size = size;
-    state.rx_finished = std::move(finished_cb);
-    state.rx_pending = true;
-    state.rx_to_idle = false;
-    state.rx_circular = false;
-
-    const HAL_StatusTypeDef status = HAL_UART_Receive_IT(handle_, static_cast<uint8_t*>(data), size);
-    if (status != HAL_OK) {
-        clearReceiveState(state);
-    }
-    return status;
-}
-
-void UartPort::setDmaAddress(const void* tx_data, void* rx_data)
-{
-    tx_dma_address_ = tx_data;
-    rx_dma_address_ = rx_data;
-}
-
-void UartPort::setTransmitDmaAddress(const void* data)
-{
-    tx_dma_address_ = data;
-}
-
-void UartPort::setReceiveDmaAddress(void* data)
-{
-    rx_dma_address_ = data;
-}
-
-HAL_StatusTypeDef UartPort::transmitDma(
-    const void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
-{
-    const void* dma_data = tx_dma_address_ != nullptr ? tx_dma_address_ : data;
-    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
-        return HAL_ERROR;
-    }
-    if (handle_->gState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-
-    Slot* slot = ensureSlot(handle_);
-    if (slot == nullptr) {
-        return HAL_ERROR;
-    }
-
-    TransferState& state = slot->state;
-    state.tx_data = dma_data;
-    state.tx_size = size;
-    state.tx_finished = std::move(finished_cb);
-    state.tx_pending = true;
-    state.tx_circular = handle_->hdmatx != nullptr && handle_->hdmatx->Init.Mode == DMA_CIRCULAR;
-
-    const HAL_StatusTypeDef status = HAL_UART_Transmit_DMA(handle_, static_cast<const uint8_t*>(dma_data), size);
-    if (status != HAL_OK) {
-        clearTransmitState(state);
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::receiveDma(
-    void* data, uint16_t size, std::function<void(const void* data, uint16_t size)> finished_cb) const
-{
-    void* dma_data = rx_dma_address_ != nullptr ? rx_dma_address_ : data;
-    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
-        return HAL_ERROR;
-    }
-    if (handle_->RxState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-
-    Slot* slot = ensureSlot(handle_);
-    if (slot == nullptr) {
-        return HAL_ERROR;
-    }
-
-    TransferState& state = slot->state;
-    state.rx_data = dma_data;
-    state.rx_size = size;
-    state.rx_finished = std::move(finished_cb);
-    state.rx_pending = true;
-    state.rx_to_idle = false;
-    state.rx_circular = handle_->hdmarx != nullptr && handle_->hdmarx->Init.Mode == DMA_CIRCULAR;
-
-    const HAL_StatusTypeDef status = HAL_UART_Receive_DMA(handle_, static_cast<uint8_t*>(dma_data), size);
-    if (status != HAL_OK) {
-        clearReceiveState(state);
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::receiveToIdleDma(
-    void* data,
-    uint16_t size,
-    std::function<void(const void* data, uint16_t size)> finished_cb,
-    bool disable_half_transfer_it) const
-{
-    void* dma_data = rx_dma_address_ != nullptr ? rx_dma_address_ : data;
-    if (handle_ == nullptr || dma_data == nullptr || size == 0U) {
-        return HAL_ERROR;
-    }
-    if (handle_->RxState != HAL_UART_STATE_READY) {
-        return HAL_BUSY;
-    }
-
-    Slot* slot = ensureSlot(handle_);
-    if (slot == nullptr) {
-        return HAL_ERROR;
-    }
-
-    TransferState& state = slot->state;
-    state.rx_data = dma_data;
-    state.rx_size = size;
-    state.rx_finished = std::move(finished_cb);
-    state.rx_pending = true;
-    state.rx_to_idle = true;
-    state.rx_circular = handle_->hdmarx != nullptr && handle_->hdmarx->Init.Mode == DMA_CIRCULAR;
-
-    const HAL_StatusTypeDef status = HAL_UARTEx_ReceiveToIdle_DMA(handle_, static_cast<uint8_t*>(dma_data), size);
-    if (status != HAL_OK) {
-        clearReceiveState(state);
-        return status;
-    }
-
-    if (disable_half_transfer_it && handle_->hdmarx != nullptr) {
-        __HAL_DMA_DISABLE_IT(handle_->hdmarx, DMA_IT_HT);
-    }
-
-    return HAL_OK;
-}
-
-HAL_StatusTypeDef UartPort::stopDma() const
-{
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
-    const HAL_StatusTypeDef status = HAL_UART_DMAStop(handle_);
-    if (status == HAL_OK) {
-        clearAllStates(handle_);
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::abort() const
-{
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
-    const HAL_StatusTypeDef status = HAL_UART_Abort(handle_);
-    if (status == HAL_OK) {
-        clearAllStates(handle_);
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::abortTransmit() const
-{
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
-    const HAL_StatusTypeDef status = HAL_UART_AbortTransmit(handle_);
-    if (status == HAL_OK) {
-        Slot* slot = findSlot(handle_);
-        if (slot != nullptr) {
-            clearTransmitState(slot->state);
-        }
-    }
-    return status;
-}
-
-HAL_StatusTypeDef UartPort::abortReceive() const
-{
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
-    const HAL_StatusTypeDef status = HAL_UART_AbortReceive(handle_);
-    if (status == HAL_OK) {
-        Slot* slot = findSlot(handle_);
-        if (slot != nullptr) {
-            clearReceiveState(slot->state);
-        }
-    }
-    return status;
 }
 
 } // namespace bsp

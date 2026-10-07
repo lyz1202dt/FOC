@@ -5,11 +5,11 @@
 
 #include "driver.hpp"
 #include "gpio.hpp"
+#include "measure.hpp"
 #include "spi.hpp"
 
 namespace BSP {
 class SVPWM;
-class Measure;
 }
 
 class DRV8301 : public MotorDriver {

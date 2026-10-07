@@ -5,7 +5,6 @@
 #include "measure.hpp"
 #include "pack.h"
 #include "svpwm.hpp"
-#include "usart.h"
 
 #include "as5600.hpp"
 #include "drv8301.hpp"
@@ -23,7 +22,7 @@ static Estimater estimater;
 static DRV8301 driver(
     BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(), BSP::drv8301_dc_cal());
 Motor motor(&flash, &encoder, &driver, &controller, &estimater);
-static UartComm uart_comm(huart3);
+static UartComm uart_comm(BSP::uart_comm_port());
 PackParser parser(&uart_comm);
 
 void on_pwm_update(void* context) {
@@ -42,7 +41,7 @@ void on_enable_motor(const Command* cmd)
 
 extern "C" void app_main(void* param) {
     BSP::time_init();
-    BSP::adc_measure().init();
+    BSP::adc_measure_start();
     BSP::ic_spi_bus().init();
     BSP::tim1_svpwm().init();
     BSP::sensor_spi_bus().init();

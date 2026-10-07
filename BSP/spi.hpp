@@ -6,33 +6,50 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 
 namespace bsp {
 
-struct SPITransfer {
+enum class SpiTransferMode : uint8_t {
+    Interrupt,
+    Dma,
+};
+
+enum class SpiTransferType : uint8_t {
+    Transmit,
+    Receive,
+    TransmitReceive,
+};
+
+enum class SpiTransferStatus : uint8_t {
+    Ok,
+    Busy,
+    Timeout,
+    Error,
+};
+
+struct SpiHardwareParams {
+    uint32_t data_size = 0U;
+    uint32_t clk_polarity = 0U;
+    uint32_t clk_phase = 0U;
+    uint32_t first_bit = 0U;
+};
+
+struct SpiTransferEvent {
+    using Callback = void (*)(SpiTransferEvent& event);
+
+    SpiTransferMode mode = SpiTransferMode::Interrupt;
+    SpiTransferType type = SpiTransferType::TransmitReceive;
+    SpiHardwareParams hardware = {};
     const void* tx_data = nullptr;
     void* rx_data = nullptr;
     uint16_t size = 0U;
-    void* param = nullptr;
-    HAL_StatusTypeDef status = HAL_OK;
-    uint32_t error_code = HAL_SPI_ERROR_NONE;
-    std::function<void(SPITransfer*)> pre_transmit_cb;
-    std::function<void(SPITransfer*)> transmited_cb;
-
-    void setDmaAddress(const void* tx_address, void* rx_address)
-    {
-        tx_data = tx_address;
-        rx_data = rx_address;
-    }
-
-    struct TransferOptions {
-        uint32_t data_size = SPI_DATASIZE_8BIT;
-        uint32_t clk_polarity = SPI_POLARITY_LOW;
-        uint32_t clk_phase = SPI_PHASE_1EDGE;
-        uint32_t first_bit = SPI_FIRSTBIT_MSB;
-    } options;
+    void* context = nullptr;
+    SpiTransferStatus status = SpiTransferStatus::Ok;
+    Callback before_cb = nullptr;
+    Callback after_cb = nullptr;
 };
+
+using SPITransfer = SpiTransferEvent;
 
 class SpiBus {
 public:
@@ -43,30 +60,15 @@ public:
     SpiBus& operator=(const SpiBus&) = delete;
 
     bool init();
-    bool transferIt(SPITransfer& transfer);
-    bool transferDma(SPITransfer& transfer);
+    bool submit(SpiTransferEvent& event);
+    bool transferIt(SpiTransferEvent& event);
+    bool transferDma(SpiTransferEvent& event);
     bool abort();
-
-    void setDmaAddress(const void* tx_data, void* rx_data);
-    void setTransmitDmaAddress(const void* data);
-    void setReceiveDmaAddress(void* data);
-    const void* transmitDmaAddress() const { return tx_dma_address_; }
-    void* receiveDmaAddress() const { return rx_dma_address_; }
 
     SPI_HandleTypeDef* native() const { return handle_; }
     bool valid() const { return handle_ != nullptr && queue_ != nullptr; }
 
 private:
-    enum class TransferMode : uint8_t {
-        Interrupt,
-        Dma,
-    };
-
-    struct QueuedTransfer {
-        SPITransfer* transfer = nullptr;
-        TransferMode mode = TransferMode::Interrupt;
-    };
-
     static constexpr std::size_t kMaxBusCount = 4U;
     static SpiBus* buses_[kMaxBusCount];
 
@@ -78,26 +80,24 @@ private:
     static void txRxHalfCpltCallback(SPI_HandleTypeDef* hspi);
     static void errorCallback(SPI_HandleTypeDef* hspi);
     static void abortCpltCallback(SPI_HandleTypeDef* hspi);
-
     static SpiBus* find(SPI_HandleTypeDef* hspi);
     static void registerBus(SpiBus* bus);
     static void unregisterBus(SpiBus* bus);
 
     bool inIsr() const;
-    bool transferValid(const SPITransfer& transfer, TransferMode mode) const;
-    HAL_StatusTypeDef startHalTransfer(SPITransfer& transfer, TransferMode mode) const;
-    SPITransfer* clearActiveTransfer(bool from_isr);
-    bool takeNextTransfer(bool from_isr, QueuedTransfer& queued, BaseType_t* higher_priority_task_woken);
-    void completeTransfer(HAL_StatusTypeDef status, bool from_isr, bool start_next);
+    bool transferValid(const SpiTransferEvent& event) const;
+    bool enqueueTransfer(SpiTransferEvent& event);
+    bool takeNextTransfer(bool from_isr, BaseType_t* higher_priority_task_woken);
     bool startNextTransfer(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
-    bool enqueueTransfer(SPITransfer& transfer, TransferMode mode);
+    void completeTransfer(HAL_StatusTypeDef status, bool from_isr, bool start_next);
+    void clearActiveTransfer(bool from_isr);
+    HAL_StatusTypeDef startHalTransfer(SpiTransferEvent& event) const;
+    HAL_StatusTypeDef applyHardwareParams(const SpiTransferEvent& event) const;
 
     SPI_HandleTypeDef* handle_ = nullptr;
     QueueHandle_t queue_ = nullptr;
-    SPITransfer* active_transfer_ = nullptr;
-    TransferMode active_mode_ = TransferMode::Interrupt;
-    const void* tx_dma_address_ = nullptr;
-    void* rx_dma_address_ = nullptr;
+    SpiTransferEvent active_event_ = {};
+    bool active_ = false;
 };
 
 } // namespace bsp
@@ -105,4 +105,9 @@ private:
 namespace BSP {
 using SPIBus = bsp::SpiBus;
 using SPITransfer = bsp::SPITransfer;
+using SpiHardwareParams = bsp::SpiHardwareParams;
+using SpiTransferEvent = bsp::SpiTransferEvent;
+using SpiTransferMode = bsp::SpiTransferMode;
+using SpiTransferStatus = bsp::SpiTransferStatus;
+using SpiTransferType = bsp::SpiTransferType;
 } // namespace BSP
