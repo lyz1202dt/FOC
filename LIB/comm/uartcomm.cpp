@@ -96,9 +96,7 @@ bool UartComm::init()
         }
     }
 
-    rx_ring_head_ = 0U;
-    rx_ring_tail_ = 0U;
-    rx_ring_size_ = 0U;
+    rx_ring_.reset();
     transmit_busy_ = false;
 
     return startReceive();
@@ -209,39 +207,10 @@ void UartComm::onReceiveEvent(uint16_t position, HAL_StatusTypeDef status)
         current_pos = rx_dma_buffer_size_;
     }
 
-    for (std::size_t i = 0U; i < current_pos; ++i) {
-        pushRxByte(rx_dma_buffer_[i]);
-    }
+    (void)rx_ring_.write_overwrite(rx_dma_buffer_, current_pos);
 
     (void)startReceive();
     parseRxRing();
-}
-
-void UartComm::pushRxByte(uint8_t value)
-{
-    rx_ring_buffer_[rx_ring_head_] = value;
-    rx_ring_head_ = (rx_ring_head_ + 1U) % kRxRingBufferSize;
-
-    if (rx_ring_size_ == kRxRingBufferSize) {
-        rx_ring_tail_ = (rx_ring_tail_ + 1U) % kRxRingBufferSize;
-    } else {
-        ++rx_ring_size_;
-    }
-}
-
-uint8_t UartComm::peekRxByte(std::size_t offset) const
-{
-    return rx_ring_buffer_[(rx_ring_tail_ + offset) % kRxRingBufferSize];
-}
-
-void UartComm::dropRxBytes(std::size_t count)
-{
-    if (count > rx_ring_size_) {
-        count = rx_ring_size_;
-    }
-
-    rx_ring_tail_ = (rx_ring_tail_ + count) % kRxRingBufferSize;
-    rx_ring_size_ -= count;
 }
 
 void UartComm::parseRxRing()
@@ -254,34 +223,41 @@ bool UartComm::tryParseFrame()
 {
     constexpr std::size_t min_frame_size = kFrameHeadSize + kFrameCrcSize;
 
-    while (rx_ring_size_ >= min_frame_size && peekRxByte(0U) != kFrameHeader) {
-        dropRxBytes(1U);
+    while (rx_ring_.size() >= min_frame_size) {
+        uint8_t header = 0U;
+        if (!rx_ring_.peek(0U, header) || header == kFrameHeader) {
+            break;
+        }
+        (void)rx_ring_.discard(1U);
     }
 
-    if (rx_ring_size_ < min_frame_size) {
+    if (rx_ring_.size() < min_frame_size) {
         return false;
     }
 
-    const uint8_t payload_size = peekRxByte(kLengthOffset);
+    uint8_t payload_size = 0U;
+    if (!rx_ring_.peek(kLengthOffset, payload_size)) {
+        return false;
+    }
     if (payload_size > kMaxPayloadSize) {
-        dropRxBytes(1U);
+        (void)rx_ring_.discard(1U);
         return true;
     }
 
     const std::size_t frame_size = kFrameHeadSize + payload_size + kFrameCrcSize;
-    if (rx_ring_size_ < frame_size) {
+    if (rx_ring_.size() < frame_size) {
         return false;
     }
 
     uint8_t frame[kFrameMaxSize]{};
     for (std::size_t i = 0U; i < frame_size; ++i) {
-        frame[i] = peekRxByte(i);
+        (void)rx_ring_.peek(i, frame[i]);
     }
 
     const uint16_t received_crc = read_u16_le(&frame[frame_size - kFrameCrcSize]);
     const uint16_t expected_crc = crc16_modbus(frame, frame_size - kFrameCrcSize);
     if (received_crc != expected_crc) {
-        dropRxBytes(1U);
+        (void)rx_ring_.discard(1U);
         return true;
     }
 
@@ -292,11 +268,11 @@ bool UartComm::tryParseFrame()
         std::memcpy(command->data, &frame[kPayloadOffset], payload_size);
     }
 
-    dropRxBytes(frame_size);
+    (void)rx_ring_.discard(frame_size);
 
     if (recv_callback_) {
         recv_callback_(command_buffer_, static_cast<int>(sizeof(Command) + payload_size));
     }
 
-    return rx_ring_size_ >= min_frame_size;
+    return rx_ring_.size() >= min_frame_size;
 }

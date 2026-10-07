@@ -5,6 +5,7 @@
 #include <functional>
 
 #include "comm.hpp"
+#include "ringbuffer.hpp"
 #include "usart.hpp"
 
 class UartComm : public Comm {
@@ -39,9 +40,6 @@ private:
     void onTransmitComplete();
     void onReceiveEvent(uint16_t position, HAL_StatusTypeDef status);
 
-    void pushRxByte(uint8_t value);
-    uint8_t peekRxByte(std::size_t offset) const;
-    void dropRxBytes(std::size_t count);
     void parseRxRing();
     bool tryParseFrame();
 
@@ -51,9 +49,7 @@ private:
     uint8_t* rx_dma_buffer_ = rx_dma_buffer_storage_;
     std::size_t rx_dma_buffer_size_ = kRxDmaBufferSize;
     uint8_t rx_ring_buffer_[kRxRingBufferSize]{};
-    std::size_t rx_ring_head_ = 0U;
-    std::size_t rx_ring_tail_ = 0U;
-    std::size_t rx_ring_size_ = 0U;
+    tools::RingBuffer rx_ring_{rx_ring_buffer_, kRxRingBufferSize};
     uint8_t send_buffer_storage_[kFrameMaxSize]{};
     uint8_t* send_buffer_ = send_buffer_storage_;
     std::size_t send_buffer_size_ = kFrameMaxSize;
