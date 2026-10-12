@@ -46,7 +46,6 @@ extern "C" void app_main(void* param) {
 
     parser.register_cmd_callback(0x01, on_enable_motor);  //电机使能
     parser.register_cmd_callback(0x02, on_target_update); //电机期望值更新
-    
 
     bool success = motor.init();
     if (!success) {

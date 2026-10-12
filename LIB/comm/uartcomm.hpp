@@ -25,10 +25,6 @@ public:
 
     bool init() override;
     bool set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size);
-    bool setDmaAddress(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size)
-    {
-        return set_dma_address(rx_buffer, rx_size, tx_buffer, tx_size);
-    }
     void register_recv_callback(std::function<void(void* data, int size)> callback) override;
     bool send_pack(void* data, int size) override;
 

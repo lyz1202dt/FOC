@@ -1,10 +1,11 @@
 #pragma once
 
 #include <string>
+#include "flash.hpp"
 
 class MotorDriver {
 public:
-    MotorDriver() {
+    MotorDriver(Flash &flash) {
     }
     virtual ~MotorDriver() = default;
     virtual bool init() {                                              // 驱动器初始化
@@ -31,4 +32,6 @@ public:
     virtual bool set_phrase_voltage(float v1, float v2, float v3) {    // 输出生成相电压
         return false;
     }
+protected:
+    Flash &flash;
 };

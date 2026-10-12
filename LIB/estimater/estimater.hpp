@@ -1,8 +1,10 @@
 #pragma once
 
+#include "flash.hpp"
+
 class Estimater {
 public:
-    Estimater() = default;
+    Estimater(Flash &flash;) = default;
     virtual ~Estimater() = default;
     virtual void set_raw_rad(float rad, bool available) {
         if (available) {
@@ -20,6 +22,7 @@ public:
     }
 
 protected:
+    Flash &flash;
     float measured_rad_{0.0f};
     bool is_available_{true};
 };
