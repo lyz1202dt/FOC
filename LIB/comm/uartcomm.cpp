@@ -80,7 +80,7 @@ bool UartComm::set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t*
 
 bool UartComm::init()
 {
-    if (port_ == nullptr || !port_->valid() || port_->native() == nullptr || port_->native()->hdmarx == nullptr) {
+    if (port_ == nullptr || port_->native() == nullptr || port_->native()->hdmarx == nullptr) {
         return false;
     }
 
@@ -149,7 +149,7 @@ bool UartComm::send_pack(void* data, int size)
     event.context = this;
     event.after_cb = &UartComm::uartTransmitCallback;
 
-    if (port_->transmit(event) != HAL_OK) {
+    if (port_->transmit(event) != bsp::Status::OK) {
         onTransmitComplete();
         return false;
     }
@@ -185,7 +185,7 @@ bool UartComm::startReceive()
     event.size = static_cast<uint16_t>(rx_dma_buffer_size_);
     event.context = this;
     event.after_cb = &UartComm::uartReceiveCallback;
-    return port_->receive(event) == HAL_OK;
+    return port_->receive(event) == bsp::Status::OK;
 }
 
 void UartComm::onTransmitComplete()
@@ -195,9 +195,9 @@ void UartComm::onTransmitComplete()
     __enable_irq();
 }
 
-void UartComm::onReceiveEvent(uint16_t position, HAL_StatusTypeDef status)
+void UartComm::onReceiveEvent(uint16_t position, bsp::Status status)
 {
-    if (status != HAL_OK) {
+    if (status != bsp::Status::OK) {
         (void)startReceive();
         return;
     }

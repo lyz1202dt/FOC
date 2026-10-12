@@ -158,6 +158,7 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
     transfer_.tx_data = tx_word;
     transfer_.rx_data = rx_word;
     transfer_.size = 1U;
+    transfer_.mode = bsp::SpiTransferMode::Dma;
     transfer_.context = this;
     transfer_.hardware = kSpiOptions;
     transfer_.before_cb = [](bsp::SPITransfer&) {
@@ -170,7 +171,7 @@ bool AS5047P::start_exchange(uint16_t command, Response command_response) {
             transfer.status == bsp::SpiTransferStatus::Ok);
     };
 
-    const bool accepted = BSP::sensor_spi_bus().transferDma(transfer_);
+    const bool accepted = BSP::sensor_spi_bus().transfer(transfer_);
 
     if (!accepted) {
         active_response_ = old_active;

@@ -24,10 +24,6 @@ AdcChannel::State* AdcChannel::findState(ADC_HandleTypeDef* handle)
 
 AdcChannel::State* AdcChannel::ensureState(ADC_HandleTypeDef* handle)
 {
-    if (handle == nullptr) {
-        return nullptr;
-    }
-
     State* state = findState(handle);
     if (state != nullptr) {
         return state;
@@ -68,7 +64,7 @@ void AdcChannel::setDmaAddress(uint32_t* data)
 HAL_StatusTypeDef AdcChannel::startDma(uint32_t length, Callback cplt) const
 {
     uint32_t* dma_data = dma_address_;
-    if (handle_ == nullptr || dma_data == nullptr || length == 0U) {
+    if (dma_data == nullptr || length == 0U) {
         return HAL_ERROR;
     }
 
@@ -92,10 +88,6 @@ HAL_StatusTypeDef AdcChannel::startDma(uint32_t length, Callback cplt) const
 
 HAL_StatusTypeDef AdcChannel::stopDma() const
 {
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
     const HAL_StatusTypeDef status = HAL_ADC_Stop_DMA(handle_);
     if (status == HAL_OK) {
         State* state = findState(handle_);
@@ -108,10 +100,6 @@ HAL_StatusTypeDef AdcChannel::stopDma() const
 
 HAL_StatusTypeDef AdcChannel::injectedStartIt(Callback cplt) const
 {
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
-
     State* state = ensureState(handle_);
     if (state == nullptr) {
         return HAL_ERROR;
@@ -132,17 +120,11 @@ HAL_StatusTypeDef AdcChannel::injectedStartIt(Callback cplt) const
 
 HAL_StatusTypeDef AdcChannel::injectedStopIt() const
 {
-    if (handle_ == nullptr) {
-        return HAL_ERROR;
-    }
     return HAL_ADCEx_InjectedStop_IT(handle_);
 }
 
 uint32_t AdcChannel::injectedValue(uint32_t rank) const
 {
-    if (handle_ == nullptr) {
-        return 0U;
-    }
     return HAL_ADCEx_InjectedGetValue(handle_, rank);
 }
 

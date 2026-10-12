@@ -38,7 +38,7 @@ private:
 
     bool startReceive();
     void onTransmitComplete();
-    void onReceiveEvent(uint16_t position, HAL_StatusTypeDef status);
+    void onReceiveEvent(uint16_t position, bsp::Status status);
 
     void parseRxRing();
     bool tryParseFrame();

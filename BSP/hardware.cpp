@@ -22,7 +22,11 @@ I2CBus i2c1(hi2c1);
 UartPort uart3(huart3);
 FdcanBus fdcan1(hfdcan1);
 AdcChannel adc1(hadc1);
+Timer tim1(htim1);
 Timer tim7(htim7);
+PwmChannel tim1_ch3(htim1, TIM_CHANNEL_3);
+PwmChannel tim1_ch2(htim1, TIM_CHANNEL_2);
+PwmChannel tim1_ch1(htim1, TIM_CHANNEL_1);
 
 HAL_StatusTypeDef init()
 {
@@ -39,7 +43,7 @@ HAL_StatusTypeDef init()
 namespace BSP {
 
 namespace {
-SVPWM g_tim1_svpwm(&htim1, TIM_CHANNEL_3, TIM_CHANNEL_2, TIM_CHANNEL_1);
+SVPWM g_tim1_svpwm(bsp::hardware::tim1, bsp::hardware::tim1_ch3, bsp::hardware::tim1_ch2, bsp::hardware::tim1_ch1);
 Measure g_adc_measure;
 
 volatile uint32_t g_timer_update_cnt = 0U;

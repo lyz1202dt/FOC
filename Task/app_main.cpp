@@ -25,10 +25,6 @@ Motor motor(&flash, &encoder, &driver, &controller, &estimater);
 static UartComm uart_comm(BSP::uart_comm_port());
 PackParser parser(&uart_comm);
 
-void on_pwm_update(void* context) {
-    static_cast<Motor*>(context)->fast_loop();
-}
-
 void on_target_update(const Command* cmd) {
     MotorCommand* temp = ((MotorCommand*)cmd->data);
     motor.controller_->set_controller_reference(temp->position, temp->velocity, temp->torque, temp->kp, temp->kd);
@@ -61,7 +57,9 @@ extern "C" void app_main(void* param) {
             }
         }
     }
-    BSP::tim1_svpwm().register_timer_update_cb(on_pwm_update, &motor);
+    BSP::tim1_svpwm().register_timer_update_cb([]() {
+        motor.fast_loop();
+    });
     while (1) {
         motor.state_update();                          // 状态更新循环
         vTaskDelay(pdMS_TO_TICKS(10));

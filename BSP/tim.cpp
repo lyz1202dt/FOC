@@ -127,12 +127,6 @@ uint32_t Timer::autoreload() const
     return __HAL_TIM_GET_AUTORELOAD(handle_);
 }
 
-void PwmChannel::bind(TIM_HandleTypeDef& handle, uint32_t channel)
-{
-    handle_ = &handle;
-    channel_ = channel;
-}
-
 HAL_StatusTypeDef PwmChannel::start() const
 {
     if (handle_ == nullptr) {
@@ -147,6 +141,22 @@ HAL_StatusTypeDef PwmChannel::stop() const
         return HAL_ERROR;
     }
     return HAL_TIM_PWM_Stop(handle_, channel_);
+}
+
+HAL_StatusTypeDef PwmChannel::startComplementary() const
+{
+    if (handle_ == nullptr) {
+        return HAL_ERROR;
+    }
+    return HAL_TIMEx_PWMN_Start(handle_, channel_);
+}
+
+HAL_StatusTypeDef PwmChannel::stopComplementary() const
+{
+    if (handle_ == nullptr) {
+        return HAL_ERROR;
+    }
+    return HAL_TIMEx_PWMN_Stop(handle_, channel_);
 }
 
 HAL_StatusTypeDef PwmChannel::startIt() const

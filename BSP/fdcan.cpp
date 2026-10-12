@@ -187,7 +187,8 @@ HAL_StatusTypeDef FdcanBus::deactivateNotification(uint32_t inactive_its) const
 
 bool FdcanBus::enqueueTransfer(FdcanTransferEvent& event)
 {
-    if (!valid() || event.size == 0U || event.size > sizeof(event.frame.data)) {
+    if (!valid() || event.frame.data == nullptr || event.size == 0U ||
+        event.size > Frame::MaxDataLength || event.size > event.frame.data_capacity) {
         return false;
     }
 
@@ -305,46 +306,9 @@ void FdcanBus::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool st
     }
 }
 
-HAL_StatusTypeDef FdcanBus::submit(FdcanTransferEvent& event)
+HAL_StatusTypeDef FdcanBus::transmit(FdcanTransferEvent& event)
 {
     return enqueueTransfer(event) ? HAL_OK : HAL_BUSY;
-}
-
-HAL_StatusTypeDef FdcanBus::transmit(uint32_t id,
-                                     const uint8_t* data,
-                                     uint8_t length,
-                                     uint32_t id_type,
-                                     uint32_t fd_format,
-                                     uint32_t bitrate_switch,
-                                     FdcanTransferEvent::Callback cplt_cb,
-                                     void* context)
-{
-    FdcanTransferEvent event = {};
-    event.frame.id = id;
-    event.frame.id_type = id_type;
-    event.frame.fd_format = fd_format;
-    event.frame.bitrate_switch = bitrate_switch;
-    event.size = length;
-    event.after_cb = cplt_cb;
-    event.context = context;
-
-    for (uint8_t i = 0U; i < length && i < sizeof(event.frame.data); ++i) {
-        event.frame.data[i] = data[i];
-    }
-
-    return submit(event);
-}
-
-HAL_StatusTypeDef FdcanBus::transmit(const Frame& frame,
-                                     FdcanTransferEvent::Callback cplt_cb,
-                                     void* context)
-{
-    FdcanTransferEvent event = {};
-    event.frame = frame;
-    event.size = dlcToLength(frame.data_length);
-    event.after_cb = cplt_cb;
-    event.context = context;
-    return submit(event);
 }
 
 HAL_StatusTypeDef FdcanBus::register_recv_cb(std::function<void(const Frame&)> recv_cb,
@@ -367,9 +331,11 @@ HAL_StatusTypeDef FdcanBus::register_recv_cb(std::function<void(const Frame&)> r
     return HAL_BUSY;
 }
 
-HAL_StatusTypeDef FdcanBus::receiveFrame(Frame& frame, uint32_t rx_location) const
+HAL_StatusTypeDef FdcanBus::receiveFrame(Frame& frame, uint32_t rx_location)
 {
     FDCAN_RxHeaderTypeDef header = {};
+    frame.data = rx_data_;
+    frame.data_capacity = Frame::MaxDataLength;
     const HAL_StatusTypeDef status =
         HAL_FDCAN_GetRxMessage(handle_, rx_location, &header, frame.data);
     if (status != HAL_OK) {

@@ -48,13 +48,12 @@ public:
     {
     }
 
-    void bind(TIM_HandleTypeDef& handle, uint32_t channel);
     TIM_HandleTypeDef* native() const { return handle_; }
-    uint32_t channel() const { return channel_; }
-    bool valid() const { return handle_ != nullptr; }
 
     HAL_StatusTypeDef start() const;
     HAL_StatusTypeDef stop() const;
+    HAL_StatusTypeDef startComplementary() const;
+    HAL_StatusTypeDef stopComplementary() const;
     HAL_StatusTypeDef startIt() const;
     HAL_StatusTypeDef stopIt() const;
     void setDmaAddress(const uint32_t* data);

@@ -7,13 +7,14 @@
 - `Core/Src/main.c` 完成 HAL/外设初始化，随后 `MX_FREERTOS_Init()` 创建默认任务。
 - `Core/Src/app_freertos.c::StartDefaultTask()` 调用 C ABI 入口 `app_main(NULL)`。
 - `Task/app_main.cpp` 负责装配全局对象并初始化 BSP、通信、编码器、驱动器和电机。
-- `TIM1` 更新中断走 `HAL_TIM_PeriodElapsedCallback()` -> `BSP::SVPWM::timer_irq()` -> `Motor::fast_loop()`。
+- `TIM1` 更新中断走 `bsp::Timer` 更新回调 -> `BSP::SVPWM::timer_irq()` -> `Motor::fast_loop()`。
 - `ADC1` 注入转换由 `TIM1 TRGO` 触发，结果在 `BSP::Measure` 缓存；`TIM7` 提供 us 级时间戳。
 
 ## 分层现状
 
 - `Core/`、`Drivers/`、`Middlewares/`：CubeMX/HAL/CMSIS/FreeRTOS 代码，除非必须集成外设，否则少改。
-- `BSP/`：HAL 包装、板级单例和 HAL 回调分发；包含 GPIO、SPI/I2C 队列、ADC 采样、SVPWM。
+- `BSP/`：HAL 包装、板级单例和 HAL 回调分发；包含 GPIO、SPI/I2C 队列、ADC 采样。
+- `LIB/tools/`：通用工具和底层算法/输出模块；包含 Flash、Measure、RingBuffer、SVPWM。
 - `Task/`：应用装配层。当前创建 `Flash`、`AS5600`、`DRV8301`、`Estimater`、`FOC`、`Motor`、`PackParser`。
 - `LIB/motor/`：电机编排与 `MotorDriver` 抽象；`DRV8301` 负责栅极驱动、相电流/母线电压读取和 SVPWM 输出。
 - `LIB/encoder/`：`Encoder` 基类和具体编码器；`AS5600` 通过构造注入 I2C 总线并异步连续采样。

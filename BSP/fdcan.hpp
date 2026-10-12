@@ -11,6 +11,8 @@
 namespace bsp {
 
 struct FdcanFrame {
+    static constexpr std::size_t MaxDataLength = 64U;
+
     uint32_t id = 0U;
     uint32_t id_type = FDCAN_STANDARD_ID;
     uint32_t frame_type = FDCAN_DATA_FRAME;
@@ -18,7 +20,8 @@ struct FdcanFrame {
     uint32_t error_state_indicator = FDCAN_ESI_ACTIVE;
     uint32_t bitrate_switch = FDCAN_BRS_OFF;
     uint32_t fd_format = FDCAN_CLASSIC_CAN;
-    uint8_t data[64] = {};
+    uint8_t* data = nullptr;
+    std::size_t data_capacity = 0U;
 };
 
 struct FdcanTransferEvent {
@@ -64,18 +67,7 @@ public:
                                            uint32_t buffer_indexes = 0U) const;
     HAL_StatusTypeDef deactivateNotification(uint32_t inactive_its) const;
 
-    HAL_StatusTypeDef submit(FdcanTransferEvent& event);
-    HAL_StatusTypeDef transmit(const Frame& frame,
-                               FdcanTransferEvent::Callback cplt_cb = nullptr,
-                               void* context = nullptr);
-    HAL_StatusTypeDef transmit(uint32_t id,
-                               const uint8_t* data,
-                               uint8_t length = 8U,
-                               uint32_t id_type = FDCAN_STANDARD_ID,
-                               uint32_t fd_format = FDCAN_CLASSIC_CAN,
-                               uint32_t bitrate_switch = FDCAN_BRS_OFF,
-                               FdcanTransferEvent::Callback cplt_cb = nullptr,
-                               void* context = nullptr);
+    HAL_StatusTypeDef transmit(FdcanTransferEvent& event);
     HAL_StatusTypeDef register_recv_cb(std::function<void(const Frame& frame)> recv_cb,
                                        uint32_t rx_location = FDCAN_RX_FIFO0);
 
@@ -102,7 +94,7 @@ private:
     static void unregisterBus(FdcanBus* bus);
 
     HAL_StatusTypeDef registerCallbacks();
-    HAL_StatusTypeDef receiveFrame(Frame& frame, uint32_t rx_location) const;
+    HAL_StatusTypeDef receiveFrame(Frame& frame, uint32_t rx_location);
     void dispatchReceive(uint32_t rx_location);
     bool inIsr() const;
     bool enqueueTransfer(FdcanTransferEvent& event);
@@ -126,6 +118,7 @@ private:
     FDCAN_HandleTypeDef* handle_ = nullptr;
     QueueHandle_t tx_queue_ = nullptr;
     FdcanTransferEvent active_tx_ = {};
+    uint8_t rx_data_[Frame::MaxDataLength] = {};
     bool tx_active_ = false;
     ReceiveCallbackSlot receive_callbacks_[kMaxReceiveCallbackCount]{};
 };

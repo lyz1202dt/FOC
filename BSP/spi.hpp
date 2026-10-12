@@ -60,9 +60,7 @@ public:
     SpiBus& operator=(const SpiBus&) = delete;
 
     bool init();
-    bool submit(SpiTransferEvent& event);
-    bool transferIt(SpiTransferEvent& event);
-    bool transferDma(SpiTransferEvent& event);
+    bool transfer(SpiTransferEvent& event);
     bool abort();
 
     SPI_HandleTypeDef* native() const { return handle_; }

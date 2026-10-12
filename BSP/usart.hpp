@@ -9,6 +9,12 @@
 
 namespace bsp {
 
+enum class Status: uint8_t{
+    OK       = 0x00U,
+    ERROR    = 0x01U,
+    BUSY     = 0x02U
+};
+
 enum class UartTransmitMode : uint8_t {
     Interrupt,
     Dma,
@@ -27,7 +33,7 @@ struct UartTransmitEvent {
     const void* data = nullptr;
     uint16_t size = 0U;
     void* context = nullptr;
-    HAL_StatusTypeDef status = HAL_OK;
+    Status status = Status::OK;
     uint32_t error_code = HAL_UART_ERROR_NONE;
     Callback before_cb = nullptr;
     Callback after_cb = nullptr;
@@ -41,7 +47,7 @@ struct UartReceiveEvent {
     uint16_t size = 0U;
     uint16_t transferred_size = 0U;
     void* context = nullptr;
-    HAL_StatusTypeDef status = HAL_OK;
+    Status status = Status::OK;
     uint32_t error_code = HAL_UART_ERROR_NONE;
     Callback before_cb = nullptr;
     Callback after_cb = nullptr;
@@ -56,11 +62,10 @@ public:
     UartPort& operator=(const UartPort&) = delete;
 
     bool init();
-    HAL_StatusTypeDef transmit(UartTransmitEvent& event);
-    HAL_StatusTypeDef receive(UartReceiveEvent& event);
+    Status transmit(UartTransmitEvent& event);
+    Status receive(UartReceiveEvent& event);
 
     UART_HandleTypeDef* native() const { return handle_; }
-    bool valid() const { return handle_ != nullptr && tx_queue_ != nullptr && rx_queue_ != nullptr; }
 
 private:
     static constexpr std::size_t kMaxPortCount = 4U;

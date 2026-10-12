@@ -301,21 +301,9 @@ bool SpiBus::init()
 #endif
 }
 
-bool SpiBus::submit(SpiTransferEvent& event)
+bool SpiBus::transfer(SpiTransferEvent& event)
 {
     return enqueueTransfer(event);
-}
-
-bool SpiBus::transferIt(SpiTransferEvent& event)
-{
-    event.mode = SpiTransferMode::Interrupt;
-    return submit(event);
-}
-
-bool SpiBus::transferDma(SpiTransferEvent& event)
-{
-    event.mode = SpiTransferMode::Dma;
-    return submit(event);
 }
 
 bool SpiBus::abort()

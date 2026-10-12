@@ -74,6 +74,18 @@ UartPort* UartPort::find(UART_HandleTypeDef* huart)
     return nullptr;
 }
 
+static Status toStatus(HAL_StatusTypeDef status)
+{
+    switch (status) {
+    case HAL_OK:
+        return Status::OK;
+    case HAL_BUSY:
+        return Status::BUSY;
+    default:
+        return Status::ERROR;
+    }
+}
+
 bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task_woken)
 {
     if (tx_active_) {
@@ -103,7 +115,7 @@ bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task
         return false;
     }
 
-    active_tx_.status = HAL_BUSY;
+    active_tx_.status = Status::BUSY;
     if (active_tx_.before_cb != nullptr) {
         active_tx_.before_cb(active_tx_);
     }
@@ -154,7 +166,7 @@ bool UartPort::startNextReceive(bool from_isr, BaseType_t* higher_priority_task_
         return false;
     }
 
-    active_rx_.status = HAL_BUSY;
+    active_rx_.status = Status::BUSY;
     if (active_rx_.before_cb != nullptr) {
         active_rx_.before_cb(active_rx_);
     }
@@ -183,7 +195,7 @@ bool UartPort::startNextReceive(bool from_isr, BaseType_t* higher_priority_task_
 void UartPort::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next)
 {
     if (tx_active_) {
-        active_tx_.status = status;
+        active_tx_.status = toStatus(status);
         active_tx_.error_code = HAL_UART_GetError(handle_);
         UartTransmitEvent finished_event = active_tx_;
         if (from_isr) {
@@ -215,7 +227,7 @@ void UartPort::completeReceive(HAL_StatusTypeDef status,
                                bool start_next)
 {
     if (rx_active_) {
-        active_rx_.status = status;
+        active_rx_.status = toStatus(status);
         active_rx_.error_code = HAL_UART_GetError(handle_);
         active_rx_.transferred_size = transferred_size;
         UartReceiveEvent finished_event = active_rx_;
@@ -244,7 +256,7 @@ void UartPort::completeReceive(HAL_StatusTypeDef status,
 
 bool UartPort::init()
 {
-    if (!valid()) {
+    if (handle_ == nullptr || tx_queue_ == nullptr || rx_queue_ == nullptr) {
         return false;
     }
 
@@ -281,59 +293,59 @@ bool UartPort::init()
 #endif
 }
 
-HAL_StatusTypeDef UartPort::transmit(UartTransmitEvent& event)
+Status UartPort::transmit(UartTransmitEvent& event)
 {
-    if (!valid()) {
-        return HAL_ERROR;
+    if (handle_ == nullptr || tx_queue_ == nullptr) {
+        return Status::ERROR;
     }
 
-    event.status = HAL_OK;
+    event.status = Status::OK;
     event.error_code = HAL_UART_ERROR_NONE;
 
     if (__get_IPSR() != 0U) {
         BaseType_t higher_priority_task_woken = pdFALSE;
         if (xQueueSendFromISR(tx_queue_, &event, &higher_priority_task_woken) != pdPASS) {
-            return HAL_BUSY;
+            return Status::BUSY;
         }
         (void)startNextTransmit(true, &higher_priority_task_woken);
         portYIELD_FROM_ISR(higher_priority_task_woken);
-        return HAL_OK;
+        return Status::OK;
     }
 
     if (xQueueSend(tx_queue_, &event, 0U) != pdPASS) {
-        return HAL_BUSY;
+        return Status::BUSY;
     }
 
     (void)startNextTransmit(false);
-    return HAL_OK;
+    return Status::OK;
 }
 
-HAL_StatusTypeDef UartPort::receive(UartReceiveEvent& event)
+Status UartPort::receive(UartReceiveEvent& event)
 {
-    if (!valid()) {
-        return HAL_ERROR;
+    if (handle_ == nullptr || rx_queue_ == nullptr) {
+        return Status::ERROR;
     }
 
-    event.status = HAL_OK;
+    event.status = Status::OK;
     event.error_code = HAL_UART_ERROR_NONE;
     event.transferred_size = 0U;
 
     if (__get_IPSR() != 0U) {
         BaseType_t higher_priority_task_woken = pdFALSE;
         if (xQueueSendFromISR(rx_queue_, &event, &higher_priority_task_woken) != pdPASS) {
-            return HAL_BUSY;
+            return Status::BUSY;
         }
         (void)startNextReceive(true, &higher_priority_task_woken);
         portYIELD_FROM_ISR(higher_priority_task_woken);
-        return HAL_OK;
+        return Status::OK;
     }
 
     if (xQueueSend(rx_queue_, &event, 0U) != pdPASS) {
-        return HAL_BUSY;
+        return Status::BUSY;
     }
 
     (void)startNextReceive(false);
-    return HAL_OK;
+    return Status::OK;
 }
 
 void UartPort::txCpltCallback(UART_HandleTypeDef* huart)
