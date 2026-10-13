@@ -6,6 +6,11 @@ extern "C"{
 
 #include <stdint.h>
 
+
+#define MOTOR_ERR 0xF0
+
+
+
 #pragma pack(1)
 
 
@@ -33,6 +38,7 @@ typedef struct{
     float torque;
     uint32_t status;
 }MotorStatus;
+
 
 
 #pragma pack()

@@ -5,7 +5,7 @@
 
 class MotorDriver {
 public:
-    MotorDriver(Flash &flash) {
+    explicit MotorDriver(Flash &flash) {
     }
     virtual ~MotorDriver() = default;
     virtual bool init() {                                              // 驱动器初始化

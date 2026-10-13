@@ -1,18 +1,19 @@
 #include "motor.hpp"
 #include "hardware.hpp"
 
-Motor::Motor(Flash* flash, Encoder* encoder, MotorDriver* driver, Controller* controller, Estimater* estimater, bool sensorless_mode)
-    : flash_(flash)
-    , encoder_(encoder)
-    , driver_(driver)
-    , controller_(controller)
-    , estimater_(estimater)
-    , sensorless_mode_(sensorless_mode) {
+#include <cstring>
+#include <utility>
+
+#include "pack.h"
+#include "stm32g4xx_hal.h"
+#include "uartcomm.hpp"
+
+Motor::Motor(Flash& flash)
+    : flash_(flash) {
 }
 
-bool Motor::enable(bool enable)
-{
-    enable_motor_=enable;
+bool Motor::enable(bool enable) {
+    enable_motor_ = enable;
     return enable_motor_;
 }
 
@@ -44,7 +45,7 @@ bool Motor::is_sensorless_mode() const {
 }
 
 bool Motor::fast_loop() {
-    if(!enable_motor_)      //未使能电机，正常退出
+    if (!enable_motor_)         // 未使能电机，正常退出
         return true;
 
     if (!motor_is_ready) {
@@ -67,14 +68,14 @@ bool Motor::fast_loop() {
 
     // 估计器输入
     estimater_->set_raw_rad(encoder_->get_value(), encoder_->value_is_available(2000));
-    if (sensorless_mode_) {  // 无感模式还要输入电压和电流
+    if (sensorless_mode_) {       // 无感模式还要输入电压和电流
         estimater_->set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);
         estimater_->set_raw_cur(current[0], current[1], current[2]);
     }
 
     float estimatered_rad = 0.0f;
     bool success          = estimater_->update(estimatered_rad);
-    if (!sensorless_mode_) { // 有感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
+    if (!sensorless_mode_) {      // 有感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
         if (!success) {
             stop_output();
             return false;
@@ -93,24 +94,45 @@ bool Motor::fast_loop() {
     last_voltage_[1] = voltage[1];
     last_voltage_[2] = voltage[2];
 
-    if(fast_look_finished_func_)            //用于实现控制器、编码器热更新
+    if (fast_look_finished_func_) // 用于实现控制器、编码器热更新
     {
         fast_look_finished_func_();
-        fast_look_finished_func_=nullptr;
+        fast_look_finished_func_ = nullptr;
     }
+
+    return true;
+}
+
+bool Motor::state_update() {
+    if (state == State::SETUP)    // 此时处于启动状态，获取当前应该创建的编码器和驱动器型号，以及控制器模式
+    {
+        flash_.init();              //读入配置信息
+        comm_=new UartComm(BSP::uart_comm_port());  //使用串口进行通信
+        driver_ = new DRV8301(
+            BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+            BSP::drv8301_dc_cal());
+        if(driver_==nullptr)    //Driver类构造失败，进入ERROR状态
+        {
+            core_err=1;
+            state=State::ERROR;
+            return false;
+        }
         
+    }
+    else if(state==State::ERROR)
+    {
+        uint8_t buffer[sizeof(Command)+sizeof(uint8_t)];
+        Command*pack=(Command*)buffer;
+        pack->cmd=MOTOR_ERR;
+        pack->size=sizeof(uint8_t);
+        pack->data[0]=core_err;
+        comm_->send_pack(buffer,sizeof(buffer));
+    }
     return true;
 }
 
-bool Motor::state_update()
-{
-
-    return true;
-}
-
-bool Motor::fast_loop_finished_cb(std::function<void(void)> func)
-{
-    fast_look_finished_func_=std::move(func);
+bool Motor::fast_loop_finished_cb(std::function<void(void)> func) {
+    fast_look_finished_func_ = std::move(func);
     return true;
 }
 

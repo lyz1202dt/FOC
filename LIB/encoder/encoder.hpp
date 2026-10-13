@@ -5,7 +5,7 @@
 
 class Encoder {
 public:
-    Encoder(Flash &flash);
+    explicit Encoder(Flash &flash);
     virtual ~Encoder();
     virtual bool init();                         //启动编码器采样
     virtual float get_value(){return rad_;};    //异步获取转子弧度

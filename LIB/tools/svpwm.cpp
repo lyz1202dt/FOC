@@ -11,7 +11,6 @@ SVPWM::SVPWM(bsp::Timer& timer, bsp::PwmChannel& channel_1, bsp::PwmChannel& cha
 }
 
 bool SVPWM::init() {
-    load_config();
     set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
 
     if (timer_.registerPeriodElapsedCallback([this]() {
@@ -27,9 +26,6 @@ bool SVPWM::init() {
     }
 
     return timer_.startIt() == HAL_OK;
-}
-
-void SVPWM::load_config() {
 }
 
 void SVPWM::register_timer_update_cb(TimerUpdateCallback callback) {

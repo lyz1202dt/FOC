@@ -35,7 +35,7 @@
 
 ## 设计注意
 
-- 总体分层方向合理：CubeMX 与用户 C++ 隔离，BSP 屏蔽 HAL，`Task` 做装配，`Motor` 依赖 `Encoder/MotorDriver/Controller/Estimater` 接口。
+- CubeMX 与用户 C++ 隔离，BSP 屏蔽 HAL，`Task` 做装配，`Motor` 依赖 `Encoder/MotorDriver/Controller/Estimater` 接口。
 - 主要待收口点：`Motor` 内部指针目前是 public，`Task` 直接访问 `motor.controller_`；新代码优先加窄接口而不是扩大 public 状态。
 - 具体硬件对象优先放在 `Task/app_main.cpp` 或 `BSP::hardware.cpp`；新增传感器/驱动器尽量用构造注入，减少直接抓 BSP 单例。
 - `PackParser` 回调可能从 `UartComm` 的 UART Rx IRQ 回调链路执行，回调逻辑要轻量；复杂处理应转到任务上下文。

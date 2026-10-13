@@ -14,7 +14,7 @@ public:
         v3 = 0.0f;
         return true;
     };
-    virtual void set_controller_reference(void* ref){};
+    virtual void controller_reference(void* ref,size_t size){};
 
     protected:
     Flash& flash;
