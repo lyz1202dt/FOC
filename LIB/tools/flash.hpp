@@ -5,7 +5,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
-#include <unordered_map>
 
 class Flash {
 public:
@@ -42,18 +41,12 @@ public:
     static SemaphoreHandle_t read_mutex;
 
 private:
-    struct CStringHash {
-        size_t operator()(const char *key) const;
-    };
-
-    struct CStringEqual {
-        bool operator()(const char *lhs, const char *rhs) const;
-    };
-
     struct Data {
+        char *key;
         void *p_data;
         int size;
         uint16_t key_length;
+        Data *next;
     };
 
     struct StoragePage {
@@ -135,7 +128,7 @@ private:
 
     void clear_ram();
 
-    std::unordered_map<const char *, Data, CStringHash, CStringEqual> data_;
+    Data *data_head_{nullptr};
     bool initialized_{false};
     bool dirty_{false};
 };

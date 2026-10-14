@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <new>
 
 SemaphoreHandle_t Flash::write_mutex = nullptr;
 SemaphoreHandle_t Flash::read_mutex = nullptr;
@@ -51,8 +52,6 @@ void Flash::init() {
               read_blob_header(blob, used, blob_header);
 
     if (ok) {
-        data_.reserve(blob_header.entry_count);
-
         size_t offset = sizeof(BlobHeader);
         while (ok && offset < blob_header.used) {
             EntryHeader entry{};
@@ -83,17 +82,27 @@ void Flash::init() {
             }
 
             std::memcpy(value, value_begin, entry.value_length);
-            auto inserted = data_.emplace(
-                key,
-                Data{value,
-                     static_cast<int>(entry.value_length),
-                     entry.key_length});
-            if (!inserted.second) {
-                std::free(inserted.first->second.p_data);
+            Data *item = data_head_;
+            while (item != nullptr && std::strcmp(item->key, key) != 0) {
+                item = item->next;
+            }
+            if (item != nullptr) {
+                std::free(item->p_data);
                 std::free(key);
-                inserted.first->second.p_data = value;
-                inserted.first->second.size = static_cast<int>(entry.value_length);
-                inserted.first->second.key_length = entry.key_length;
+                item->p_data = value;
+                item->size = static_cast<int>(entry.value_length);
+                item->key_length = entry.key_length;
+            } else {
+                Data *new_node = new (std::nothrow) Data{
+                    key, value, static_cast<int>(entry.value_length),
+                    entry.key_length, data_head_};
+                if (new_node == nullptr) {
+                    std::free(key);
+                    std::free(value);
+                    ok = false;
+                    break;
+                }
+                data_head_ = new_node;
             }
 
             offset += entry_size;
@@ -129,24 +138,19 @@ void Flash::fresh() {
         return;
     }
 
-    if (data_.size() > std::numeric_limits<uint16_t>::max()) {
-        give_mutex(read_mutex);
-        give_mutex(write_mutex);
-        return;
-    }
-
     const size_t capacity = blob_capacity();
     size_t used = sizeof(BlobHeader);
     uint16_t entry_count = 0U;
     bool ok = true;
-    for (const auto &item : data_) {
-        const Data &data = item.second;
+    for (const Data *item = data_head_; item != nullptr; item = item->next) {
+        const Data &data = *item;
         const size_t key_size = data.key_length;
         const size_t value_size = data.size < 0 ? 0U : static_cast<size_t>(data.size);
-        if (item.first == nullptr ||
+        if (entry_count == std::numeric_limits<uint16_t>::max() ||
+            data.key == nullptr ||
             key_size == 0U ||
             key_size > std::numeric_limits<uint16_t>::max() ||
-            std::strlen(item.first) != key_size ||
+            std::strlen(data.key) != key_size ||
             data.p_data == nullptr ||
             data.size <= 0 ||
             value_size > std::numeric_limits<uint16_t>::max()) {
@@ -183,8 +187,8 @@ void Flash::fresh() {
         std::memcpy(blob, &blob_header, sizeof(blob_header));
 
         size_t offset = sizeof(BlobHeader);
-        for (const auto &item : data_) {
-            const Data &data = item.second;
+        for (const Data *item = data_head_; item != nullptr; item = item->next) {
+            const Data &data = *item;
             const size_t key_size = data.key_length;
             const size_t value_size = static_cast<size_t>(data.size);
             EntryHeader entry{};
@@ -194,7 +198,7 @@ void Flash::fresh() {
 
             std::memcpy(blob + offset, &entry, sizeof(entry));
             offset += sizeof(entry);
-            std::memcpy(blob + offset, item.first, key_size);
+            std::memcpy(blob + offset, data.key, key_size);
             offset += key_size;
             std::memcpy(blob + offset, data.p_data, value_size);
             offset += value_size;
@@ -248,39 +252,22 @@ void Flash::remove(const char *key) {
 
     size_t key_size = 0U;
     if (get_key_length(key, &key_size)) {
-        auto item = data_.find(key);
-        if (item != data_.end()) {
-            const char *stored_key = item->first;
-            std::free(item->second.p_data);
-            std::free(const_cast<char *>(stored_key));
-            data_.erase(item);
+        Data **link = &data_head_;
+        while (*link != nullptr && std::strcmp((*link)->key, key) != 0) {
+            link = &(*link)->next;
+        }
+        if (*link != nullptr) {
+            Data *item = *link;
+            *link = item->next;
+            std::free(item->p_data);
+            std::free(item->key);
+            delete item;
             dirty_ = true;
         }
     }
 
     give_mutex(read_mutex);
     give_mutex(write_mutex);
-}
-
-size_t Flash::CStringHash::operator()(const char *key) const {
-    if (key == nullptr) {
-        return 0U;
-    }
-
-    size_t hash = 2166136261UL;
-    while (*key != '\0') {
-        hash ^= static_cast<unsigned char>(*key);
-        hash *= 16777619UL;
-        ++key;
-    }
-    return hash;
-}
-
-bool Flash::CStringEqual::operator()(const char *lhs, const char *rhs) const {
-    if (lhs == nullptr || rhs == nullptr) {
-        return lhs == rhs;
-    }
-    return std::strcmp(lhs, rhs) == 0;
 }
 
 bool Flash::get_key_length(const char *key, size_t *length) {
@@ -318,14 +305,13 @@ char *Flash::duplicate_key(const char *key, size_t length) {
 }
 
 void Flash::clear_ram() {
-    for (auto &item : data_) {
-        std::free(const_cast<char *>(item.first));
-        std::free(item.second.p_data);
-        item.second.p_data = nullptr;
-        item.second.size = 0;
-        item.second.key_length = 0U;
+    while (data_head_ != nullptr) {
+        Data *item = data_head_;
+        data_head_ = item->next;
+        std::free(item->key);
+        std::free(item->p_data);
+        delete item;
     }
-    data_.clear();
     initialized_ = false;
     dirty_ = false;
 }
@@ -636,20 +622,20 @@ bool Flash::write_raw(const char *key, const void *value, size_t length) {
               length <= std::numeric_limits<uint16_t>::max() &&
               length <= static_cast<size_t>(std::numeric_limits<int>::max());
 
+    Data *existing_node = nullptr;
     if (ok) {
         const size_t capacity = blob_capacity();
         size_t projected_used = sizeof(BlobHeader);
         size_t projected_count = 0U;
-        bool replacing = false;
-        for (const auto &item : data_) {
-            const bool same_key = CStringEqual{}(item.first, key);
-            const Data &data = item.second;
+        for (Data *item = data_head_; item != nullptr; item = item->next) {
+            const bool same_key = item->key != nullptr && std::strcmp(item->key, key) == 0;
+            const Data &data = *item;
             const size_t stored_key_size = data.key_length;
             const size_t value_size = same_key ? length : static_cast<size_t>(data.size);
-            if (item.first == nullptr ||
+            if (data.key == nullptr ||
                 stored_key_size == 0U ||
                 stored_key_size > std::numeric_limits<uint16_t>::max() ||
-                std::strlen(item.first) != stored_key_size ||
+                std::strlen(data.key) != stored_key_size ||
                 (!same_key && (data.p_data == nullptr || data.size <= 0)) ||
                 value_size == 0U ||
                 value_size > std::numeric_limits<uint16_t>::max()) {
@@ -667,10 +653,12 @@ bool Flash::write_raw(const char *key, const void *value, size_t length) {
 
             projected_used += entry_size;
             ++projected_count;
-            replacing = replacing || same_key;
+            if (same_key) {
+                existing_node = item;
+            }
         }
 
-        if (ok && !replacing) {
+        if (ok && existing_node == nullptr) {
             const size_t entry_size = sizeof(EntryHeader) + key_size + length;
             ok = projected_count < std::numeric_limits<uint16_t>::max() &&
                  entry_size <= std::numeric_limits<uint16_t>::max() &&
@@ -687,11 +675,10 @@ bool Flash::write_raw(const char *key, const void *value, size_t length) {
 
     if (ok) {
         std::memcpy(new_data, value, length);
-        auto item = data_.find(key);
-        if (item != data_.end()) {
-            std::free(item->second.p_data);
-            item->second.p_data = new_data;
-            item->second.size = static_cast<int>(length);
+        if (existing_node != nullptr) {
+            std::free(existing_node->p_data);
+            existing_node->p_data = new_data;
+            existing_node->size = static_cast<int>(length);
         } else {
             char *new_key = duplicate_key(key, key_size);
             if (new_key == nullptr) {
@@ -701,16 +688,15 @@ bool Flash::write_raw(const char *key, const void *value, size_t length) {
                 return false;
             }
 
-            data_.reserve(data_.size() + 1U);
-            auto inserted = data_.emplace(
-                new_key,
-                Data{new_data,
-                     static_cast<int>(length),
-                     static_cast<uint16_t>(key_size)});
-            if (!inserted.second) {
+            Data *new_node = new (std::nothrow) Data{
+                new_key, new_data, static_cast<int>(length),
+                static_cast<uint16_t>(key_size), data_head_};
+            if (new_node == nullptr) {
                 std::free(new_key);
                 std::free(new_data);
                 ok = false;
+            } else {
+                data_head_ = new_node;
             }
         }
     }
@@ -737,12 +723,15 @@ bool Flash::read_raw(const char *key, void *value, size_t length) {
               length > 0U &&
               length <= static_cast<size_t>(std::numeric_limits<int>::max());
     if (ok) {
-        auto item = data_.find(key);
-        ok = item != data_.end() &&
-             item->second.p_data != nullptr &&
-             item->second.size == static_cast<int>(length);
+        const Data *item = data_head_;
+        while (item != nullptr && std::strcmp(item->key, key) != 0) {
+            item = item->next;
+        }
+        ok = item != nullptr &&
+             item->p_data != nullptr &&
+             item->size == static_cast<int>(length);
         if (ok) {
-            std::memcpy(value, item->second.p_data, length);
+            std::memcpy(value, item->p_data, length);
         }
     }
 
