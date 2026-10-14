@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdlib>
 #include <functional>
 
 class Comm {
@@ -17,4 +18,59 @@ public:
         (void)size;
         return false;
     };
+};
+
+class CommManager {
+public:
+    explicit CommManager(int max_channels)
+        : max_channels_(max_channels > 0 ? max_channels : 0),
+          comm_num_(0),
+          p_comm_(max_channels_ > 0 ? new Comm*[max_channels_]{} : nullptr) {}
+
+    ~CommManager() {
+        delete[] p_comm_;
+    }
+
+    // 禁止拷贝
+    CommManager(const CommManager&) = delete;
+    CommManager& operator=(const CommManager&) = delete;
+
+    int register_comm_channel(Comm* comm) {
+        if (comm == nullptr || comm_num_ >= max_channels_) {
+            return -1;
+        }
+
+        p_comm_[comm_num_] = comm;
+        return comm_num_++;
+    }
+
+    bool register_recv_callback(
+        std::function<void(void* data, int size)> callback,
+        int channel) {
+        if (channel < 0 || channel >= comm_num_ ||
+            p_comm_[channel] == nullptr) {
+            return false;
+        }
+
+        p_comm_[channel]->register_recv_callback(callback);
+        return true;
+    }
+
+    bool send_pack(void* data, int size, int channel) {
+        if (channel < 0 || channel >= comm_num_ ||
+            p_comm_[channel] == nullptr) {
+            return false;
+        }
+
+        return p_comm_[channel]->send_pack(data, size);
+    }
+
+    int comm_num()const {
+        return comm_num_;
+    }
+
+private:
+    int max_channels_;
+    int comm_num_;
+    Comm** p_comm_;
 };

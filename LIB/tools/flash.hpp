@@ -4,7 +4,6 @@
 #include "semphr.h"
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <type_traits>
 #include <unordered_map>
 
@@ -20,17 +19,17 @@ public:
 
     void fresh();
 
-    void remove(std::string key);
+    void remove(const char *key);
 
     template <typename T>
-    bool write_value(std::string key, const T &value) {
+    bool write_value(const char *key, const T &value) {
         static_assert(std::is_trivially_copyable<T>::value,
                       "Flash only supports trivially copyable value types");
         return write_raw(key, &value, sizeof(T));
     }
 
     template <typename T>
-    bool read_value(std::string key, T &value) {
+    bool read_value(const char *key, T &value) {
         static_assert(std::is_trivially_copyable<T>::value,
                       "Flash only supports trivially copyable value types");
         return read_raw(key, &value, sizeof(T));
@@ -40,9 +39,18 @@ public:
     static SemaphoreHandle_t read_mutex;
 
 private:
+    struct CStringHash {
+        size_t operator()(const char *key) const;
+    };
+
+    struct CStringEqual {
+        bool operator()(const char *lhs, const char *rhs) const;
+    };
+
     struct Data {
         void *p_data;
         int size;
+        uint16_t key_length;
     };
 
     struct StoragePage {
@@ -119,12 +127,14 @@ private:
     static bool ensure_mutex(SemaphoreHandle_t &mutex);
     static bool take_mutex(SemaphoreHandle_t &mutex);
     static void give_mutex(SemaphoreHandle_t mutex);
+    static bool get_key_length(const char *key, size_t *length);
+    static char *duplicate_key(const char *key, size_t length);
 
     void clear_ram();
-    bool write_raw(const std::string &key, const void *value, size_t length);
-    bool read_raw(const std::string &key, void *value, size_t length);
+    bool write_raw(const char *key, const void *value, size_t length);
+    bool read_raw(const char *key, void *value, size_t length);
 
-    std::unordered_map<std::string, Data> data_;
+    std::unordered_map<const char *, Data, CStringHash, CStringEqual> data_;
     bool initialized_{false};
     bool dirty_{false};
 };
