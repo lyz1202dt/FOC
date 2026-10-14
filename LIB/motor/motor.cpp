@@ -2,6 +2,7 @@
 #include "as5047p.hpp"
 #include "as5600.hpp"
 #include "comm.hpp"
+#include "drv8301.hpp"
 #include "estimater.hpp"
 #include "flash.hpp"
 #include "foc.hpp"
@@ -38,7 +39,7 @@ bool Motor::init() {
     }
 
     driver_ = new DRV8301(
-        BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+        flash_, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
         BSP::drv8301_dc_cal());
     if (driver_ == nullptr) {                           // Driver类构造失败，进入ERROR状态
         core_error_=0x01;
@@ -48,8 +49,8 @@ bool Motor::init() {
     int encoder_type = -1;
     flash_.read_value("encoder", encoder_type);         // 加载配置指定的Encoder
     switch (encoder_type) {                             // 根据配置的编码器读取数据
-    case 0: encoder_ = new AS5600(BSP::sensor_i2c_bus()); break;
-    case 1: encoder_ = new AS5047P(); break;
+    case 0: encoder_ = new AS5600(flash_, BSP::sensor_i2c_bus()); break;
+    case 1: encoder_ = new AS5047P(flash_); break;
     default: encoder_ = nullptr;
     }
     if (encoder_ == nullptr) {                          // Encoder类构造失败，进入ERROR状态
@@ -72,7 +73,7 @@ bool Motor::init() {
 
     // 创建全部控制器
     controllers_[ControllerType::CONTROLLER_IDEL]          = new class IDEL(flash_);
-    controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC();
+    controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC(flash_);
     controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
     controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
     controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = nullptr;
@@ -169,6 +170,13 @@ bool Motor::fast_loop() {
     return true;
 }
 
+void Motor::stop_output() {
+    driver_->set_phrase_voltage(0.0f, 0.0f, 0.0f);
+    last_voltage_[0] = 0.0f;
+    last_voltage_[1] = 0.0f;
+    last_voltage_[2] = 0.0f;
+}
+
 bool Motor::handle_event() {
     Command* command=nullptr;
     xQueueReceive(event_queue_, &command, portMAX_DELAY);
@@ -203,16 +211,58 @@ bool Motor::handle_event() {
     }
     else if(cmd==0x07)  //设置参数值(存储的格式为:size(uint8_t)|c_str|data)
     {
-        char key[16];
-        int str_length=std::strlen((char*)(cmd_pack->data));
-        int value_length=cmd_pack->size-str_length-1;
-        memcpy(key, cmd_pack->data, str_length+1);
-        key[15]=0;
-        flash_.write_raw(key, cmd_pack->data+str_length+1, value_length);
+        constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);
+        if (command->size < 4U || command->size > kMaxPayloadSize) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
+        const size_t value_length = command->data[0];
+        const char* key = reinterpret_cast<const char*>(command->data + 1U);
+        const char* key_end = static_cast<const char*>(
+            std::memchr(key, '\0', command->size - 1U));
+        if (key_end == nullptr || key_end == key || value_length == 0U) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
+        const size_t value_offset = 1U + static_cast<size_t>(key_end - key) + 1U;
+        if (value_length != command->size - value_offset ||
+            !flash_.write_raw(key, command->data + value_offset, value_length)) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
     }
     else if(cmd==0x08)  //请求参数值,向所有通道发送一次参数的值
     {
-        
+        constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);
+        if (command->size < 3U || command->size > kMaxPayloadSize) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
+        const size_t value_length = command->data[0];
+        const char* key = reinterpret_cast<const char*>(command->data + 1U);
+        const char* key_end = static_cast<const char*>(
+            std::memchr(key, '\0', command->size - 1U));
+        if (key_end == nullptr || key_end == key || value_length == 0U) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
+        const size_t value_offset = 1U + static_cast<size_t>(key_end - key) + 1U;
+        if (value_offset != command->size ||
+            value_length > kMaxPayloadSize - value_offset ||
+            !flash_.read_raw(key, command->data + value_offset, value_length)) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
+        command->size = static_cast<uint32_t>(value_offset + value_length);
+        bool sent = true;
+        for (int channel = 0; channel < comm_manager_.comm_num(); ++channel) {
+            if (!comm_manager_.send_pack(
+                    command, static_cast<int>(sizeof(Command) + command->size), channel)) {
+                sent = false;
+            }
+        }
+        memory_poll_.release_blob(command);
+        return sent;
     }
     else if(cmd==0x09)  //保存参数值到flash中
     {
@@ -245,12 +295,13 @@ bool Motor::slow_loop()
     {
         //TODO:指示FOC正常运转
     }
+    return true;
 }
 
 //必须在IRQ上下文调用
 bool Motor::notify_error(uint8_t error){
     Command command{.cmd=0xFF,.size=0};
-    on_command(&command,sizeof(Command));
+    return on_command(&command,sizeof(Command));
 }
 
 bool Motor::on_command(void* data,int size) //注意：位于ISR上下文

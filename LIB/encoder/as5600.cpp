@@ -9,8 +9,9 @@ constexpr uint16_t kAs5600AngleRegister = 0x0Cu;
 
 } // namespace
 
-AS5600::AS5600(BSP::I2CBus& bus)
-    : bus_(bus) {
+AS5600::AS5600(Flash& flash, BSP::I2CBus& bus)
+    : Encoder(flash)
+    , bus_(bus) {
 }
 
 bool AS5600::init() {

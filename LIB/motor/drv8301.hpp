@@ -39,7 +39,7 @@ public:
         uint16_t status2{0};
     };
 
-    DRV8301(BSP::SPIBus& spi, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
+    DRV8301(Flash& flash, BSP::SPIBus& spi, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
     bool config(float requested_gain, float* actual_gain = nullptr);

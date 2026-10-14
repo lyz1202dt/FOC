@@ -13,8 +13,9 @@ bool IDEL::get_output(float& v1, float& v2, float& v3){     //输出0电压
     v1=0.0f;
     v2=0.0f;
     v3=0.0f;
+    return true;
 }
 
-void IDEL::set_controller_reference(void* ref){
+void IDEL::controller_reference(void* ref, size_t size){
 
 }

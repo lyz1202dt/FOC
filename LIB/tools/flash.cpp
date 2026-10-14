@@ -1,4 +1,5 @@
 #include "flash.hpp"
+#include "stm32g4xx_hal.h"
 
 #include <cstdlib>
 #include <cstring>

@@ -4,7 +4,7 @@
 
 class Estimater {
 public:
-    Estimater(Flash &flash);
+    Estimater(Flash &flash) : flash(flash) {}
     virtual ~Estimater() = default;
     virtual void set_raw_rad(float rad, bool available) {
         if (available) {

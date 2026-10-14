@@ -5,7 +5,7 @@
 
 class FOC : public Controller {
 public:
-    FOC();
+    explicit FOC(Flash &flash);
     virtual ~FOC() = default;
     void set_measure(
         const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) override;

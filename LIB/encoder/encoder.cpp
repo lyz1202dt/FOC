@@ -2,7 +2,7 @@
 #include "hardware.hpp"
 #include "stm32g4xx_hal.h"
 
-Encoder::Encoder()
+Encoder::Encoder(Flash &flash) : flash(flash)
 {
 
 }

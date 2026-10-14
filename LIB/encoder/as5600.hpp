@@ -5,7 +5,7 @@
 
 class AS5600 : public Encoder {
 public:
-    explicit AS5600(BSP::I2CBus& bus);
+    AS5600(Flash& flash, BSP::I2CBus& bus);
     bool init() override;
     bool sensor_update();
 private:

@@ -7,7 +7,7 @@
 
 class AS5047P : public Encoder {
 public:
-    AS5047P();
+    explicit AS5047P(Flash &flash);
     bool init() override;
     void setDmaAddress(uint16_t* tx_word, uint16_t* rx_word);
     bool sensor_update();

@@ -2,7 +2,7 @@
 #include "arm_math.h"
 #include <cmath>
 
-FOC::FOC() {
+FOC::FOC(Flash &flash) : Controller(flash) {
 }
 
 void FOC::set_measure(

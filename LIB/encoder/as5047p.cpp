@@ -22,7 +22,7 @@ constexpr bsp::SpiHardwareParams kSpiOptions{
 
 } // namespace
 
-AS5047P::AS5047P() {
+AS5047P::AS5047P(Flash &flash) : Encoder(flash) {
 }
 
 void AS5047P::setDmaAddress(uint16_t* tx_word, uint16_t* rx_word) {
