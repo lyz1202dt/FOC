@@ -9,5 +9,7 @@ public:
     void set_measure(
         const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) override;
     bool get_output(float& v1, float& v2, float& v3) override;
-    void set_controller_reference(void* ref) override;
+    void controller_reference(void* ref,size_t size) override;
+private:
+    float vir_ecc_rad{0.0f};
 };

@@ -3,16 +3,19 @@
 #include "as5600.hpp"
 #include "comm.hpp"
 #include "estimater.hpp"
+#include "flash.hpp"
 #include "foc.hpp"
 #include "hardware.hpp"
 #include "idel.hpp"
 #include "pack.h"
+#include "projdefs.h"
 #include "voc.hpp"
 #include <cstring>
 
 Motor::Motor(Flash& flash, CommManager& comm_manager)
     : flash_(flash)
-    , comm_manager_(comm_manager) {
+    , comm_manager_(comm_manager)
+    , memory_poll_(32,6) {
 }
 
 bool Motor::enable(bool enable) {
@@ -21,41 +24,103 @@ bool Motor::enable(bool enable) {
 }
 
 bool Motor::init() {
-    if (motor_is_ready_) {
-        return true;
+    event_queue_=xQueueCreate(8, sizeof(void*));
+
+    for (int i = 0; i < comm_manager_.comm_num(); i++) { // 为所有信道来源注册命令接收回调
+        if (!comm_manager_.register_recv_callback(
+                [this](void* data, int size) {
+                    on_command(data, size);
+                },
+                i)) {
+            core_error_=0x21;
+            return false;
+        }
+    }
+
+    driver_ = new DRV8301(
+        BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+        BSP::drv8301_dc_cal());
+    if (driver_ == nullptr) {                           // Driver类构造失败，进入ERROR状态
+        core_error_=0x01;
+        return false;
+    }
+
+    int encoder_type = -1;
+    flash_.read_value("encoder", encoder_type);         // 加载配置指定的Encoder
+    switch (encoder_type) {                             // 根据配置的编码器读取数据
+    case 0: encoder_ = new AS5600(BSP::sensor_i2c_bus()); break;
+    case 1: encoder_ = new AS5047P(); break;
+    default: encoder_ = nullptr;
+    }
+    if (encoder_ == nullptr) {                          // Encoder类构造失败，进入ERROR状态
+        core_error_=0x02;
+        return false;
+    }
+
+    int estimater_type = 0;
+    flash_.read_value("estimater", estimater_type);     // 加载配置指定的Estimater
+    switch (estimater_type) {                           // 根据配置的编码器读取数据
+    case 0:                                             // 默认估计器
+        estimater_ = new Estimater(flash_);
+        break;
+    default: estimater_ = nullptr;
+    }
+    if (estimater_ == nullptr) {                        // Estimater类构造失败，进入ERROR状态
+        core_error_=0x03;
+        return false;
+    }
+
+    // 创建全部控制器
+    controllers_[ControllerType::CONTROLLER_IDEL]          = new class IDEL(flash_);
+    controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC();
+    controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
+    controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
+    controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = nullptr;
+    // 设置初始控制器为IDEL
+    controller_ = next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
+    next_estimater_ = estimater_;
+
+    if (controller_ == nullptr) {
+        core_error_=0x04;
+        return false;
     }
 
     if (!sensorless_mode_ && !encoder_->init()) {
+        core_error_=0x05;
         return false;
     }
 
     if (!driver_->init()) {
+        core_error_=0x06;
         return false;
     }
     if (!driver_->set_enable(true)) {
+        core_error_=0x07;
         return false;
     }
-    motor_is_ready_ = driver_->is_ready();
-    return motor_is_ready_;
-}
+    if (!driver_->is_ready()) {
+        core_error_=0x08;
+        return false;
+    }
 
-bool Motor::is_sensorless_mode() const {
-    return sensorless_mode_;
+    return true;
 }
 
 bool Motor::fast_loop() {
     if (!enable_motor_)         // 未使能电机，正常退出
         return true;
 
-    if (!motor_is_ready_) {
-        state_    = State::ERROR;
-        core_err_ = 0x10;
+    if(core_error_) //错误码没有清除，不执行控制
+        return false;
+
+    if (!motor_is_ready_) { 
+        core_error_=0x10;
+        notify_error(core_error_);
         return false;
     }
-
     if (!driver_->is_ready()) { // 驱动器不可用，退出
-        motor_is_ready_ = false;
-        stop_output();
+        core_error_=0x20;
+        notify_error(core_error_);
         return false;
     }
 
@@ -95,7 +160,7 @@ bool Motor::fast_loop() {
     last_voltage_[1] = voltage[1];
     last_voltage_[2] = voltage[2];
 
-    // 检查控制器切换
+    // 检查控制器和估计器热切换
     if (next_estimater_ && (next_estimater_ != estimater_))
         estimater_ = next_estimater_;
     if (next_controller_ && (next_controller_ != controller_))
@@ -104,109 +169,98 @@ bool Motor::fast_loop() {
     return true;
 }
 
-bool Motor::state_update() {
-    if (state_ == State::SETUP)                         // 此时处于启动状态，获取当前应该创建的编码器和驱动器型号，以及控制器模式
+bool Motor::handle_event() {
+    Command* command=nullptr;
+    xQueueReceive(event_queue_, &command, portMAX_DELAY);
+    uint32_t cmd=command->cmd;
+    if(cmd==0x01)   //启动/停止控制输出fast_loop
     {
-        flash_.init();                                  // 构造Flash表
-        for (int i = 0; i < comm_manager_.comm_num(); i++)  //为所有信道来源注册命令接收回调
-            comm_manager_.register_recv_callback(
-                [this](void* data, int size) {
-                    on_command(data, size);
-                },
-                i);
-        
-        driver_ = new DRV8301(
-            BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
-            BSP::drv8301_dc_cal());
-        if (driver_ == nullptr)                         // Driver类构造失败，进入ERROR状态
-        {
-            core_err_ = 1;
-            state_    = State::ERROR;
-            return false;
-        }
-
-        int encoder_type = -1;
-        flash_.read_value("encoder", encoder_type);     // 加载配置指定的Encoder
-        switch (encoder_type) {                         // 根据配置的编码器读取数据
-        case 0: encoder_ = new AS5600(BSP::sensor_i2c_bus()); break;
-        case 1: encoder_ = new AS5047P(); break;
-        default: encoder_ = nullptr;
-        }
-        if (encoder_ == nullptr)                        // Encoder类构造失败，进入ERROR状态
-        {
-            core_err_ = 2;
-            state_    = State::ERROR;
-            return false;
-        }
-
-
-        int estimater_type = 0;
-        flash_.read_value("estimater", estimater_type); // 加载配置指定的Estimater
-        switch (estimater_type) {                       // 根据配置的编码器读取数据
-        case 0:                                         // 默认估计器
-            estimater_ = new Estimater(flash_);
-            break;
-        default: estimater_ = nullptr;
-        }
-        if (estimater_ == nullptr)                      // Estimater类构造失败，进入ERROR状态
-        {
-            core_err_ = 3;
-            state_    = State::ERROR;
-            return false;
-        }
-
-        // 创建全部控制器
-        controllers_[ControllerType::CONTROLLER_IDEL]          = new class IDEL(flash_);
-        controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC();
-        controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
-        controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
-        controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = nullptr;
-        // 设置初始控制器为IDEL
-        controller_ = next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
-
-        motor_is_ready_ = true;                             // 电机ready，切入IDEL模式
-        state_          = State::IDEL;
-    } else if (state_ == State::IDEL)                       // IDEL状态
-    {
-
-    } else if (state_ == State::TEST)                       // VOC 测试状态
-    {
-
-    } else if (state_ == State::ERROR)                      // 错误状态，报告错误
-    {
-        uint8_t buffer[sizeof(Command) + sizeof(uint8_t)];
-        Command* pack = (Command*)buffer;
-        pack->cmd     = MOTOR_ERR;
-        pack->size    = sizeof(uint8_t);
-        pack->data[0] = core_err_;
-        comm_manager_.send_pack(buffer, sizeof(buffer), 0); // 使用信道0发送错误信息
+        enable(command->data[0]?true:false);
     }
+    else if(cmd==0x02)  //请求切入IDEL模式
+    {
+        state=State::IDEL;
+        next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
+    }
+    else if(cmd==0x03)  //请求切入开环测试
+    {
+        state=State::TEST;
+        next_controller_ = controllers_[ControllerType::CONTROLLER_TEST];
+    }
+    else if(cmd==0x04)  //请求切入FOC闭环
+    {
+        state=State::FOC;
+        next_controller_ = controllers_[ControllerType::CONTROLLER_FOC];
+    }
+    else if(cmd==0x05)  //设置FOC参考力矩电流
+    {
+        controllers_[ControllerType::CONTROLLER_FOC]->controller_reference(command->data, sizeof(float));
+    }
+    else if(cmd==0x06)  //请求获取电机状态
+    {
+        //TODO:触发复位重启（还需要增加一些关断驱动器的代码）
+        //NVIC_SystemReset();
+    }
+    else if(cmd==0x07)  //设置参数值(存储的格式为:size(uint8_t)|c_str|data)
+    {
+        char key[16];
+        int str_length=std::strlen((char*)(cmd_pack->data));
+        int value_length=cmd_pack->size-str_length-1;
+        memcpy(key, cmd_pack->data, str_length+1);
+        key[15]=0;
+        flash_.write_raw(key, cmd_pack->data+str_length+1, value_length);
+    }
+    else if(cmd==0x08)  //请求参数值,向所有通道发送一次参数的值
+    {
+        
+    }
+    else if(cmd==0x09)  //保存参数值到flash中
+    {
+        flash_.fresh();
+    }
+    else if(cmd==0x0A)  //触发复位
+    {
+        //TODO:触发复位重启，还需要增加一些安全处理的代码
+    }
+    else if(cmd==0x0A)  //清除错误信息
+    {
+        core_error_=0;
+    }
+    else if(cmd==0xFF)  //驱动器错误
+    {
+        next_controller_=controller_=controllers_[ControllerType::CONTROLLER_IDEL];
+        state=State::ERROR;
+    }
+    memory_poll_.release_blob(command);
     return true;
 }
 
-void Motor::stop_output() {
-    driver_->set_phrase_voltage(0.0f, 0.0f, 0.0f);
-    last_voltage_[0] = 0.0f;
-    last_voltage_[1] = 0.0f;
-    last_voltage_[2] = 0.0f;
+bool Motor::slow_loop()
+{
+    if(state==State::ERROR)
+    {
+        //TODO:提示错误信息
+    }
+    else if(state==FOC)
+    {
+        //TODO:指示FOC正常运转
+    }
 }
 
-bool Motor::on_command(void* data,int size)
+//必须在IRQ上下文调用
+bool Motor::notify_error(uint8_t error){
+    Command command{.cmd=0xFF,.size=0};
+    on_command(&command,sizeof(Command));
+}
+
+bool Motor::on_command(void* data,int size) //注意：位于ISR上下文
 {
-    Command* cmd_pack=static_cast<Command*>(data);
-    if(cmd_pack->size+sizeof(Command)!=size)
+    void* cmd_block=memory_poll_.require_blob();
+    if(cmd_block==nullptr)  //内存池空间不足，直接退出
         return false;
-    uint32_t cmd=cmd_pack->cmd;
-    if(cmd==0x01)   //电机使能指令
-    {
-        enable(cmd_pack->data[0]?true:false);
-    }
-    else if(cmd==0x02)  //请求开环测试
-    {
-        req_state_=State::IDEL;
-    }
-    else if(cmd==0x03)  //设置FOC参考力矩电流
-    {
-        controllers_[ControllerType::CONTROLLER_FOC]->controller_reference((float*)cmd_pack->data, sizeof(float));
-    }
+    memcpy(cmd_block,data,size);
+    BaseType_t pxHigherPriorityTaskWoken=pdFALSE;
+    xQueueSendFromISR(event_queue_, cmd_block, &pxHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
+    return true;
 }

@@ -10,7 +10,7 @@
 
 class UartComm : public Comm {
 public:
-    static constexpr std::size_t kMaxPayloadSize = 120U;
+    static constexpr std::size_t kMaxPayloadSize = 32U;
     static constexpr std::size_t kFrameHeadSize = 1U + 1U + sizeof(uint32_t);
     static constexpr std::size_t kFrameCrcSize = sizeof(uint16_t);
     static constexpr std::size_t kFrameMaxSize = kFrameHeadSize + kMaxPayloadSize + kFrameCrcSize;

@@ -40,6 +40,6 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
     return true;
 }
 
-void FOC::set_controller_reference(void* ref) {
+void FOC::controller_reference(void* ref,size_t size) {
     exp_iq_=*static_cast<float*>(ref);              //在FOC模式下，将ref视作q轴电流参考值
 }

@@ -35,6 +35,9 @@ public:
         return read_raw(key, &value, sizeof(T));
     }
 
+    bool write_raw(const char *key, const void *value, size_t length);
+    bool read_raw(const char *key, void *value, size_t length);
+
     static SemaphoreHandle_t write_mutex;
     static SemaphoreHandle_t read_mutex;
 
@@ -131,8 +134,6 @@ private:
     static char *duplicate_key(const char *key, size_t length);
 
     void clear_ram();
-    bool write_raw(const char *key, const void *value, size_t length);
-    bool read_raw(const char *key, void *value, size_t length);
 
     std::unordered_map<const char *, Data, CStringHash, CStringEqual> data_;
     bool initialized_{false};

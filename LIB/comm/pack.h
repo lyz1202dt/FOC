@@ -7,10 +7,6 @@ extern "C"{
 #include <stdint.h>
 
 
-#define MOTOR_ERR 0xF0
-
-
-
 #pragma pack(1)
 
 
