@@ -7,55 +7,22 @@
 
 namespace {
 constexpr uint8_t kFrameHeader = 0x5AU;
-constexpr std::size_t kHeaderOffset = 0U;
-constexpr std::size_t kLengthOffset = 1U;
-constexpr std::size_t kCommandOffset = 2U;
-constexpr std::size_t kPayloadOffset = UartComm::kFrameHeadSize;
+} // namespace
 
-uint16_t crc16_modbus(const uint8_t* data, std::size_t size)
+uint16_t UartComm::CalculateCrc(const uint8_t* data, std::size_t size)
 {
     uint16_t crc = 0xFFFFU;
     for (std::size_t i = 0U; i < size; ++i) {
         crc ^= data[i];
         for (uint8_t bit = 0U; bit < 8U; ++bit) {
-            if ((crc & 0x0001U) != 0U) {
-                crc = static_cast<uint16_t>((crc >> 1U) ^ 0xA001U);
-            } else {
-                crc >>= 1U;
-            }
+            crc = static_cast<uint16_t>((crc >> 1U) ^ ((crc & 1U) != 0U ? 0xA001U : 0U));
         }
     }
     return crc;
 }
 
-uint16_t read_u16_le(const uint8_t* data)
-{
-    return static_cast<uint16_t>(data[0]) | static_cast<uint16_t>(static_cast<uint16_t>(data[1]) << 8U);
-}
-
-uint32_t read_u32_le(const uint8_t* data)
-{
-    return static_cast<uint32_t>(data[0]) | (static_cast<uint32_t>(data[1]) << 8U) |
-           (static_cast<uint32_t>(data[2]) << 16U) | (static_cast<uint32_t>(data[3]) << 24U);
-}
-
-void write_u16_le(uint8_t* data, uint16_t value)
-{
-    data[0] = static_cast<uint8_t>(value & 0x00FFU);
-    data[1] = static_cast<uint8_t>((value >> 8U) & 0x00FFU);
-}
-
-void write_u32_le(uint8_t* data, uint32_t value)
-{
-    data[0] = static_cast<uint8_t>(value & 0x000000FFUL);
-    data[1] = static_cast<uint8_t>((value >> 8U) & 0x000000FFUL);
-    data[2] = static_cast<uint8_t>((value >> 16U) & 0x000000FFUL);
-    data[3] = static_cast<uint8_t>((value >> 24U) & 0x000000FFUL);
-}
-} // namespace
-
 UartComm::UartComm(bsp::UartPort& port)
-    : port_(&port)
+    : port_(port)
 {
 }
 
@@ -66,213 +33,136 @@ void UartComm::register_recv_callback(std::function<void(void* data, int size)> 
 
 bool UartComm::set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size)
 {
-    if (rx_buffer == nullptr || rx_size == 0U || rx_size > 0xFFFFU || tx_buffer == nullptr ||
-        tx_size < kFrameMaxSize || transmit_busy_) {
+    if (initialized_ || rx_buffer == nullptr || rx_size == 0U || tx_buffer == nullptr ||
+        tx_size < kFrameMaxSize) {
         return false;
     }
-
     rx_dma_buffer_ = rx_buffer;
-    rx_dma_buffer_size_ = rx_size;
-    send_buffer_ = tx_buffer;
-    send_buffer_size_ = tx_size;
+    rx_dma_size_ = static_cast<uint16_t>(rx_size < kFrameMaxSize ? rx_size : kFrameMaxSize);
+    tx_dma_buffer_ = tx_buffer;
     return true;
 }
 
 bool UartComm::init()
 {
-    if (port_ == nullptr || port_->native() == nullptr || port_->native()->hdmarx == nullptr) {
+    if (initialized_ || port_.native() == nullptr) {
         return false;
     }
-
-    if (!port_->init()) {
-        return false;
-    }
-
-    DMA_HandleTypeDef* rx_dma = port_->native()->hdmarx;
-    if (rx_dma->Init.Mode != DMA_NORMAL) {
-        rx_dma->Init.Mode = DMA_NORMAL;
-        if (HAL_DMA_Init(rx_dma) != HAL_OK) {
+    if (tx_dma_buffer_ != nullptr) {
+        auto* handle = port_.native();
+        if (handle->hdmarx == nullptr || handle->hdmatx == nullptr) {
             return false;
         }
+        // Receive-to-idle completion consumes and rearms a normal DMA buffer.
+        if (handle->hdmarx->Init.Mode != DMA_NORMAL) {
+            handle->hdmarx->Init.Mode = DMA_NORMAL;
+            if (HAL_DMA_Init(handle->hdmarx) != HAL_OK) {
+                return false;
+            }
+        }
     }
-
-    rx_ring_.reset();
-    transmit_busy_ = false;
-
-    return startReceive();
+    if (!port_.init()) {
+        return false;
+    }
+    initialized_ = true;
+    return StartReceive();
 }
 
 bool UartComm::send_pack(void* data, int size)
 {
-    if (port_ == nullptr || data == nullptr || size < static_cast<int>(sizeof(Command))) {
+    if (!initialized_ || data == nullptr || size < static_cast<int>(sizeof(Command)) ||
+        size > static_cast<int>(kCommandMaxSize)) {
         return false;
     }
-
     const auto* command = static_cast<const Command*>(data);
-    const uint32_t payload_size = command->size;
-    if (payload_size > kMaxPayloadSize || size != static_cast<int>(sizeof(Command) + payload_size)) {
+    if (command->size != static_cast<uint32_t>(size - sizeof(Command))) {
         return false;
     }
-
-    bool accepted = false;
-    __disable_irq();
-    if (!transmit_busy_) {
-        transmit_busy_ = true;
-        accepted = true;
-    }
-    __enable_irq();
-
-    if (!accepted) {
-        return false;
-    }
-
-    const uint16_t frame_size = static_cast<uint16_t>(kFrameHeadSize + payload_size + kFrameCrcSize);
-    if (frame_size > send_buffer_size_) {
-        onTransmitComplete();
-        return false;
-    }
-
-    send_buffer_[kHeaderOffset] = kFrameHeader;
-    send_buffer_[kLengthOffset] = static_cast<uint8_t>(payload_size);
-    write_u32_le(&send_buffer_[kCommandOffset], command->cmd);
-    if (payload_size > 0U) {
-        std::memcpy(&send_buffer_[kPayloadOffset], command->data, payload_size);
-    }
-
-    const uint16_t crc = crc16_modbus(send_buffer_, frame_size - kFrameCrcSize);
-    write_u16_le(&send_buffer_[frame_size - kFrameCrcSize], crc);
 
     bsp::UartTransmitEvent event = {};
-    event.mode = bsp::UartTransmitMode::Dma;
-    event.data = send_buffer_;
-    event.size = frame_size;
+    event.mode = tx_dma_buffer_ != nullptr ? bsp::UartTransmitMode::Dma : bsp::UartTransmitMode::Interrupt;
+    event.data = data;
+    event.size = static_cast<uint16_t>(size);
     event.context = this;
-    event.after_cb = &UartComm::uartTransmitCallback;
-
-    if (port_->transmit(event) != bsp::Status::OK) {
-        onTransmitComplete();
-        return false;
-    }
-
-    return true;
+    event.before_cb = &UartComm::PrepareTransmit;
+    return port_.transmit(event) == bsp::Status::OK;
 }
 
-void UartComm::uartTransmitCallback(bsp::UartTransmitEvent& event)
+void UartComm::PrepareTransmit(bsp::UartTransmitEvent& event)
 {
-    auto* comm = static_cast<UartComm*>(event.context);
-    if (comm != nullptr) {
-        comm->onTransmitComplete();
-    }
+    auto& comm = *static_cast<UartComm*>(event.context);
+    const auto* command = static_cast<const Command*>(event.data);
+    uint8_t* frame = event.mode == bsp::UartTransmitMode::Dma ? comm.tx_dma_buffer_ : comm.tx_frame_;
+    // Use the validated descriptor length, not mutable caller metadata.
+    const std::size_t payload_size = event.size - sizeof(Command);
+    const uint32_t command_id = command->cmd;
+    std::memmove(frame + kFrameHeadSize, command->data, payload_size);
+    frame[0] = kFrameHeader;
+    frame[1] = static_cast<uint8_t>(payload_size);
+    // STM32 and the wire command ID are both little endian.
+    std::memcpy(frame + 2U, &command_id, sizeof(command_id));
+    const uint16_t crc = CalculateCrc(frame, event.size - kFrameCrcSize);
+    frame[event.size - 2U] = static_cast<uint8_t>(crc);
+    frame[event.size - 1U] = static_cast<uint8_t>(crc >> 8U);
+    event.data = frame;
 }
 
-void UartComm::uartReceiveCallback(bsp::UartReceiveEvent& event)
+bool UartComm::StartReceive()
 {
-    auto* comm = static_cast<UartComm*>(event.context);
-    if (comm != nullptr) {
-        comm->onReceiveEvent(event.transferred_size, event.status);
-    }
-}
-
-bool UartComm::startReceive()
-{
-    if (port_ == nullptr) {
-        return false;
-    }
-
     bsp::UartReceiveEvent event = {};
-    event.mode = bsp::UartReceiveMode::ToIdleDma;
-    event.data = rx_dma_buffer_;
-    event.size = static_cast<uint16_t>(rx_dma_buffer_size_);
+    event.mode = rx_dma_buffer_ != nullptr ? bsp::UartReceiveMode::ToIdleDma : bsp::UartReceiveMode::Interrupt;
+    event.data = rx_dma_buffer_ != nullptr ? rx_dma_buffer_ : &rx_byte_;
+    event.size = rx_dma_buffer_ != nullptr ? rx_dma_size_ : 1U;
     event.context = this;
-    event.after_cb = &UartComm::uartReceiveCallback;
-    return port_->receive(event) == bsp::Status::OK;
+    event.after_cb = &UartComm::ReceiveComplete;
+    return port_.receive(event) == bsp::Status::OK;
 }
 
-void UartComm::onTransmitComplete()
+void UartComm::ReceiveComplete(bsp::UartReceiveEvent& event)
 {
-    __disable_irq();
-    transmit_busy_ = false;
-    __enable_irq();
-}
-
-void UartComm::onReceiveEvent(uint16_t position, bsp::Status status)
-{
-    if (status != bsp::Status::OK) {
-        (void)startReceive();
-        return;
+    auto& comm = *static_cast<UartComm*>(event.context);
+    if (event.status == bsp::Status::OK) {
+        comm.ProcessReceive(static_cast<const uint8_t*>(event.data), event.transferred_size);
+    } else {
+        comm.rx_frame_size_ = 0U;
     }
-
-    std::size_t current_pos = position;
-    if (current_pos > rx_dma_buffer_size_) {
-        current_pos = rx_dma_buffer_size_;
-    }
-
-    (void)rx_ring_.write_overwrite(rx_dma_buffer_, current_pos);
-
-    (void)startReceive();
-    parseRxRing();
-}
-
-void UartComm::parseRxRing()
-{
-    while (tryParseFrame()) {
+    // Do not retry a synchronous HAL start failure recursively.
+    if (__get_IPSR() != 0U && !comm.receive_rearming_) {
+        comm.receive_rearming_ = true;
+        (void)comm.StartReceive();
+        comm.receive_rearming_ = false;
     }
 }
 
-bool UartComm::tryParseFrame()
+void UartComm::ProcessReceive(const uint8_t* data, std::size_t size)
 {
-    constexpr std::size_t min_frame_size = kFrameHeadSize + kFrameCrcSize;
-
-    while (rx_ring_.size() >= min_frame_size) {
-        uint8_t header = 0U;
-        if (!rx_ring_.peek(0U, header) || header == kFrameHeader) {
-            break;
+    for (std::size_t i = 0U; i < size; ++i) {
+        rx_frame_[rx_frame_size_++] = data[i];
+        while (rx_frame_size_ >= 2U) {
+            std::size_t consumed = 1U;
+            if (rx_frame_[0] == kFrameHeader && rx_frame_[1] <= kMaxPayloadSize) {
+                const std::size_t frame_size = kFrameHeadSize + rx_frame_[1] + kFrameCrcSize;
+                if (rx_frame_size_ < frame_size) {
+                    break;
+                }
+                const uint16_t crc = static_cast<uint16_t>(rx_frame_[frame_size - 2U]) |
+                                     static_cast<uint16_t>(rx_frame_[frame_size - 1U] << 8U);
+                if (crc == CalculateCrc(rx_frame_, frame_size - kFrameCrcSize)) {
+                    // Build the callback's Command on the stack instead of retaining
+                    // a second command buffer. Its lifetime ends with the callback.
+                    alignas(uint32_t) uint8_t command_data[kCommandMaxSize];
+                    auto* command = reinterpret_cast<Command*>(command_data);
+                    std::memcpy(&command->cmd, rx_frame_ + 2U, sizeof(command->cmd));
+                    command->size = rx_frame_[1];
+                    std::memcpy(command->data, rx_frame_ + kFrameHeadSize, command->size);
+                    consumed = frame_size;
+                    if (recv_callback_) {
+                        recv_callback_(command_data, static_cast<int>(sizeof(Command) + command->size));
+                    }
+                }
+            }
+            rx_frame_size_ -= consumed;
+            std::memmove(rx_frame_, rx_frame_ + consumed, rx_frame_size_);
         }
-        (void)rx_ring_.discard(1U);
     }
-
-    if (rx_ring_.size() < min_frame_size) {
-        return false;
-    }
-
-    uint8_t payload_size = 0U;
-    if (!rx_ring_.peek(kLengthOffset, payload_size)) {
-        return false;
-    }
-    if (payload_size > kMaxPayloadSize) {
-        (void)rx_ring_.discard(1U);
-        return true;
-    }
-
-    const std::size_t frame_size = kFrameHeadSize + payload_size + kFrameCrcSize;
-    if (rx_ring_.size() < frame_size) {
-        return false;
-    }
-
-    uint8_t frame[kFrameMaxSize]{};
-    for (std::size_t i = 0U; i < frame_size; ++i) {
-        (void)rx_ring_.peek(i, frame[i]);
-    }
-
-    const uint16_t received_crc = read_u16_le(&frame[frame_size - kFrameCrcSize]);
-    const uint16_t expected_crc = crc16_modbus(frame, frame_size - kFrameCrcSize);
-    if (received_crc != expected_crc) {
-        (void)rx_ring_.discard(1U);
-        return true;
-    }
-
-    auto* command = reinterpret_cast<Command*>(command_buffer_);
-    command->cmd = read_u32_le(&frame[kCommandOffset]);
-    command->size = payload_size;
-    if (payload_size > 0U) {
-        std::memcpy(command->data, &frame[kPayloadOffset], payload_size);
-    }
-
-    (void)rx_ring_.discard(frame_size);
-
-    if (recv_callback_) {
-        recv_callback_(command_buffer_, static_cast<int>(sizeof(Command) + payload_size));
-    }
-
-    return rx_ring_.size() >= min_frame_size;
 }

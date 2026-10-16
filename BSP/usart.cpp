@@ -78,19 +78,23 @@ static Status toStatus(HAL_StatusTypeDef status)
 
 bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task_woken)
 {
-    if (tx_active_) {
-        return false;
-    }
-
     bool has_transfer = false;
     if (from_isr) {
         const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+        if (tx_active_) {
+            portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+            return false;
+        }
         has_transfer =
             xQueueReceiveFromISR(tx_queue_, &active_tx_, higher_priority_task_woken) == pdPASS;
         tx_active_ = has_transfer;
         portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
     } else {
         taskENTER_CRITICAL();
+        if (tx_active_) {
+            taskEXIT_CRITICAL();
+            return false;
+        }
         has_transfer = xQueueReceive(tx_queue_, &active_tx_, 0U) == pdPASS;
         tx_active_ = has_transfer;
         taskEXIT_CRITICAL();
@@ -120,7 +124,7 @@ bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task
         __HAL_DMA_DISABLE_IT(handle_->hdmatx, DMA_IT_HT);
     }
     if (status != HAL_OK) {
-        completeTransmit(status, from_isr, true);
+        completeTransmit(status, from_isr, true, HAL_UART_GetError(handle_));
         return false;
     }
 
@@ -129,19 +133,23 @@ bool UartPort::startNextTransmit(bool from_isr, BaseType_t* higher_priority_task
 
 bool UartPort::startNextReceive(bool from_isr, BaseType_t* higher_priority_task_woken)
 {
-    if (rx_active_) {
-        return false;
-    }
-
     bool has_transfer = false;
     if (from_isr) {
         const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+        if (rx_active_) {
+            portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+            return false;
+        }
         has_transfer =
             xQueueReceiveFromISR(rx_queue_, &active_rx_, higher_priority_task_woken) == pdPASS;
         rx_active_ = has_transfer;
         portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
     } else {
         taskENTER_CRITICAL();
+        if (rx_active_) {
+            taskEXIT_CRITICAL();
+            return false;
+        }
         has_transfer = xQueueReceive(rx_queue_, &active_rx_, 0U) == pdPASS;
         rx_active_ = has_transfer;
         taskEXIT_CRITICAL();
@@ -175,18 +183,19 @@ bool UartPort::startNextReceive(bool from_isr, BaseType_t* higher_priority_task_
         __HAL_DMA_DISABLE_IT(handle_->hdmarx, DMA_IT_HT);
     }
     if (status != HAL_OK) {
-        completeReceive(status, 0U, from_isr, true);
+        completeReceive(status, 0U, from_isr, true, HAL_UART_GetError(handle_));
         return false;
     }
 
     return true;
 }
 
-void UartPort::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next)
+void UartPort::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next,
+                                uint32_t error_code)
 {
     if (tx_active_) {
         active_tx_.status = toStatus(status);
-        active_tx_.error_code = HAL_UART_GetError(handle_);
+        active_tx_.error_code = error_code;
         UartTransmitEvent finished_event = active_tx_;
         if (from_isr) {
             const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
@@ -214,11 +223,12 @@ void UartPort::completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool st
 void UartPort::completeReceive(HAL_StatusTypeDef status,
                                uint16_t transferred_size,
                                bool from_isr,
-                               bool start_next)
+                               bool start_next,
+                               uint32_t error_code)
 {
     if (rx_active_) {
         active_rx_.status = toStatus(status);
-        active_rx_.error_code = HAL_UART_GetError(handle_);
+        active_rx_.error_code = error_code;
         active_rx_.transferred_size = transferred_size;
         UartReceiveEvent finished_event = active_rx_;
         if (from_isr) {
@@ -371,8 +381,33 @@ void UartPort::errorCallback(UART_HandleTypeDef* huart)
 {
     UartPort* port = find(huart);
     if (port != nullptr) {
-        port->completeTransmit(HAL_ERROR, true, true);
-        port->completeReceive(HAL_ERROR, 0U, true, true);
+        // RX line errors leave TX running. Snapshot both states before any callback
+        // can rearm a transfer and change the HAL state/error code.
+        const bool transmit_stopped = huart->gState == HAL_UART_STATE_READY;
+        const bool receive_stopped = huart->RxState == HAL_UART_STATE_READY;
+        const uint32_t error_code = HAL_UART_GetError(huart);
+        const bool dma_error = (error_code & HAL_UART_ERROR_DMA) != 0U;
+        if (dma_error) {
+            // This HAL ends both UART directions on a DMA error, but the other
+            // DMA channel may still be enabled. Stop it before releasing buffers.
+            // G4 HAL_DMA_Abort_IT disables/clears the channel without polling.
+            if (transmit_stopped && huart->hdmatx != nullptr) {
+                ATOMIC_CLEAR_BIT(huart->Instance->CR3, USART_CR3_DMAT);
+                huart->hdmatx->XferAbortCallback = nullptr;
+                (void)HAL_DMA_Abort_IT(huart->hdmatx);
+            }
+            if (receive_stopped && huart->hdmarx != nullptr) {
+                ATOMIC_CLEAR_BIT(huart->Instance->CR3, USART_CR3_DMAR);
+                huart->hdmarx->XferAbortCallback = nullptr;
+                (void)HAL_DMA_Abort_IT(huart->hdmarx);
+            }
+        }
+        if (transmit_stopped) {
+            port->completeTransmit(HAL_ERROR, true, true, error_code);
+        }
+        if (receive_stopped) {
+            port->completeReceive(HAL_ERROR, 0U, true, true, error_code);
+        }
     }
 }
 

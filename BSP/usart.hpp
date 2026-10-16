@@ -63,6 +63,8 @@ public:
 
     // Call from one task after scheduler startup, before transfers; keep the bus idle.
     bool init();
+    // Queues descriptors only: data must remain valid/unchanged until after_cb.
+    // OK means accepted, not completed; BUSY means queue full.
     Status transmit(UartTransmitEvent& event);
     Status receive(UartReceiveEvent& event);
 
@@ -83,11 +85,13 @@ private:
 
     bool startNextTransmit(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
     bool startNextReceive(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
-    void completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next);
+    void completeTransmit(HAL_StatusTypeDef status, bool from_isr, bool start_next,
+                          uint32_t error_code = HAL_UART_ERROR_NONE);
     void completeReceive(HAL_StatusTypeDef status,
                          uint16_t transferred_size,
                          bool from_isr,
-                         bool start_next);
+                         bool start_next,
+                         uint32_t error_code = HAL_UART_ERROR_NONE);
 
     UART_HandleTypeDef* handle_ = nullptr;
     uint32_t queue_length_ = 0U;
