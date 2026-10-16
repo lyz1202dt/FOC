@@ -7,16 +7,8 @@ namespace bsp {
 SpiBus* SpiBus::buses_[SpiBus::kMaxBusCount]{};
 
 SpiBus::SpiBus(SPI_HandleTypeDef& handle, uint32_t queue_length)
-    : handle_(&handle)
+    : handle_(&handle), queue_length_(queue_length)
 {
-    if (queue_length != 0U) {
-        queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
-                              sizeof(SpiTransferEvent));
-    }
-
-    if (queue_ != nullptr) {
-        registerBus(this);
-    }
 }
 
 SpiBus::~SpiBus()
@@ -253,7 +245,15 @@ void SpiBus::completeTransfer(HAL_StatusTypeDef status, bool from_isr, bool star
 
 bool SpiBus::init()
 {
-    if (!valid()) {
+    // Initialize from one task after the scheduler starts, before using the bus.
+    if (handle_ == nullptr || queue_length_ == 0U) {
+        return false;
+    }
+
+    if (queue_ == nullptr) {
+        queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length_), sizeof(SpiTransferEvent));
+    }
+    if (queue_ == nullptr) {
         return false;
     }
 
@@ -294,6 +294,9 @@ bool SpiBus::init()
     if (HAL_SPI_RegisterCallback(handle_, HAL_SPI_ABORT_CB_ID,
                                  &SpiBus::abortCpltCallback) != HAL_OK) {
         registered = false;
+    }
+    if (registered) {
+        registerBus(this);
     }
     return registered;
 #else

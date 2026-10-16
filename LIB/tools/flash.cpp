@@ -9,16 +9,17 @@
 SemaphoreHandle_t Flash::write_mutex = nullptr;
 SemaphoreHandle_t Flash::read_mutex = nullptr;
 
-Flash::Flash() {
-    (void)ensure_mutex(write_mutex);
-    (void)ensure_mutex(read_mutex);
-}
+Flash::Flash() = default;
 
 Flash::~Flash() {
     clear_ram();
 }
 
 void Flash::init() {
+    // Initialize from one task after scheduler startup, before sharing this object.
+    if (!ensure_mutex(write_mutex) || !ensure_mutex(read_mutex)) {
+        return;
+    }
     if (!take_mutex(write_mutex)) {
         return;
     }
@@ -236,6 +237,33 @@ void Flash::fresh() {
 
     give_mutex(read_mutex);
     give_mutex(write_mutex);
+}
+
+bool Flash::clear() {
+    if (!take_mutex(write_mutex)) {
+        return false;
+    }
+    if (!take_mutex(read_mutex)) {
+        give_mutex(write_mutex);
+        return false;
+    }
+
+    bool ok = true;
+    for (size_t page = 0U; page < kStoragePageCount; ++page) {
+        if (!erase_storage_page(page)) {
+            ok = false;
+            break;
+        }
+    }
+
+    if (ok) {
+        clear_ram();
+        initialized_ = true;
+    }
+
+    give_mutex(read_mutex);
+    give_mutex(write_mutex);
+    return ok;
 }
 
 void Flash::remove(const char *key) {

@@ -7,18 +7,8 @@ namespace bsp {
 UartPort* UartPort::ports_[UartPort::kMaxPortCount]{};
 
 UartPort::UartPort(UART_HandleTypeDef& handle, uint32_t queue_length)
-    : handle_(&handle)
+    : handle_(&handle), queue_length_(queue_length)
 {
-    if (queue_length != 0U) {
-        tx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
-                                 sizeof(UartTransmitEvent));
-        rx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
-                                 sizeof(UartReceiveEvent));
-    }
-
-    if (tx_queue_ != nullptr && rx_queue_ != nullptr) {
-        registerPort(this);
-    }
 }
 
 UartPort::~UartPort()
@@ -256,7 +246,20 @@ void UartPort::completeReceive(HAL_StatusTypeDef status,
 
 bool UartPort::init()
 {
-    if (handle_ == nullptr || tx_queue_ == nullptr || rx_queue_ == nullptr) {
+    // Initialize from one task after the scheduler starts, before using the bus.
+    if (handle_ == nullptr || queue_length_ == 0U) {
+        return false;
+    }
+
+    if (tx_queue_ == nullptr) {
+        tx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length_),
+                                 sizeof(UartTransmitEvent));
+    }
+    if (rx_queue_ == nullptr) {
+        rx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length_),
+                                 sizeof(UartReceiveEvent));
+    }
+    if (tx_queue_ == nullptr || rx_queue_ == nullptr) {
         return false;
     }
 

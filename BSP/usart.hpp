@@ -61,6 +61,7 @@ public:
     UartPort(const UartPort&) = delete;
     UartPort& operator=(const UartPort&) = delete;
 
+    // Call from one task after scheduler startup, before transfers; keep the bus idle.
     bool init();
     Status transmit(UartTransmitEvent& event);
     Status receive(UartReceiveEvent& event);
@@ -89,6 +90,7 @@ private:
                          bool start_next);
 
     UART_HandleTypeDef* handle_ = nullptr;
+    uint32_t queue_length_ = 0U;
     QueueHandle_t tx_queue_ = nullptr;
     QueueHandle_t rx_queue_ = nullptr;
     UartTransmitEvent active_tx_ = {};

@@ -19,6 +19,7 @@ extern GpioPin sensor_spi_cs;
 extern GpioPin drv8301_enable_gate;
 extern GpioPin drv8301_fault;
 extern GpioPin dc_cal;
+extern GpioPin led;
 
 extern SpiBus spi1;
 extern SpiBus spi3;
@@ -28,6 +29,7 @@ extern FdcanBus fdcan1;
 extern AdcChannel adc1;
 extern Timer tim7;
 
+// Call from a task after scheduler startup, before any bus transfers.
 HAL_StatusTypeDef init();
 
 } // namespace bsp::hardware

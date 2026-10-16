@@ -33,15 +33,8 @@ void I2CBus::unregisterBus(I2CBus* bus)
 }
 
 I2CBus::I2CBus(I2C_HandleTypeDef& handle, uint32_t queue_length)
-    : handle_(&handle)
+    : handle_(&handle), queue_length_(queue_length)
 {
-    if (queue_length != 0U) {
-        queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length), sizeof(QueuedTransfer));
-    }
-
-    if (handle_ != nullptr && queue_ != nullptr) {
-        registerBus(this);
-    }
 }
 
 I2CBus::~I2CBus()
@@ -229,7 +222,15 @@ bool I2CBus::enqueueTransfer(I2CTransfer& transfer)
 
 bool I2CBus::init()
 {
-    if (!valid()) {
+    // Initialize from one task after the scheduler starts, before using the bus.
+    if (handle_ == nullptr || queue_length_ == 0U) {
+        return false;
+    }
+
+    if (queue_ == nullptr) {
+        queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length_), sizeof(QueuedTransfer));
+    }
+    if (queue_ == nullptr) {
         return false;
     }
 

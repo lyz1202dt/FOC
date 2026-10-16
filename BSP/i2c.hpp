@@ -39,6 +39,7 @@ public:
     I2CBus(const I2CBus&) = delete;
     I2CBus& operator=(const I2CBus&) = delete;
 
+    // Call from one task after scheduler startup, before transfers; keep the bus idle.
     bool init();
     bool transferIt(I2CTransfer& transfer);
     bool abort();
@@ -75,6 +76,7 @@ private:
     bool enqueueTransfer(I2CTransfer& transfer);
 
     I2C_HandleTypeDef* handle_ = nullptr;
+    uint32_t queue_length_ = 0U;
     QueueHandle_t queue_ = nullptr;
     I2CTransfer* active_transfer_ = nullptr;
 };

@@ -7,16 +7,8 @@ namespace bsp {
 FdcanBus* FdcanBus::buses_[FdcanBus::kMaxBusCount]{};
 
 FdcanBus::FdcanBus(FDCAN_HandleTypeDef& handle, uint32_t queue_length)
-    : handle_(&handle)
+    : handle_(&handle), queue_length_(queue_length)
 {
-    if (queue_length != 0U) {
-        tx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length),
-                                 sizeof(FdcanTransferEvent));
-    }
-
-    if (tx_queue_ != nullptr) {
-        registerBus(this);
-    }
 }
 
 FdcanBus::~FdcanBus()
@@ -71,6 +63,24 @@ FdcanBus* FdcanBus::find(FDCAN_HandleTypeDef* hfdcan)
 bool FdcanBus::inIsr() const
 {
     return __get_IPSR() != 0U;
+}
+
+bool FdcanBus::init()
+{
+    // Initialize from one task after the scheduler starts, before using the bus.
+    if (handle_ == nullptr || queue_length_ == 0U) {
+        return false;
+    }
+
+    if (tx_queue_ == nullptr) {
+        tx_queue_ = xQueueCreate(static_cast<UBaseType_t>(queue_length_), sizeof(FdcanTransferEvent));
+    }
+    if (tx_queue_ == nullptr) {
+        return false;
+    }
+
+    registerBus(this);
+    return true;
 }
 
 HAL_StatusTypeDef FdcanBus::configFilter(const FDCAN_FilterTypeDef& filter) const
@@ -151,6 +161,10 @@ HAL_StatusTypeDef FdcanBus::configAcceptAllFilters(uint32_t std_filter_index,
 
 HAL_StatusTypeDef FdcanBus::start(uint32_t active_its, uint32_t rx_fifo0_watermark)
 {
+    if (!valid()) {
+        return HAL_ERROR;
+    }
+
     HAL_StatusTypeDef status = registerCallbacks();
     if (status != HAL_OK) {
         return status;

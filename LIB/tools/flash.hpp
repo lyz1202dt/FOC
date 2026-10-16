@@ -18,6 +18,10 @@ public:
 
     void fresh();
 
+    // Task context only. Erase both storage pages, then clear RAM on success.
+    // On erase failure, return false and retain RAM; Flash may be partly erased.
+    bool clear();
+
     void remove(const char *key);
 
     template <typename T>

@@ -59,6 +59,7 @@ public:
     SpiBus(const SpiBus&) = delete;
     SpiBus& operator=(const SpiBus&) = delete;
 
+    // Call from one task after scheduler startup, before transfers; keep the bus idle.
     bool init();
     bool transfer(SpiTransferEvent& event);
     bool abort();
@@ -93,6 +94,7 @@ private:
     HAL_StatusTypeDef applyHardwareParams(const SpiTransferEvent& event) const;
 
     SPI_HandleTypeDef* handle_ = nullptr;
+    uint32_t queue_length_ = 0U;
     QueueHandle_t queue_ = nullptr;
     SpiTransferEvent active_event_ = {};
     bool active_ = false;

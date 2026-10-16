@@ -15,6 +15,7 @@ GpioPin sensor_spi_cs(SENSOR_SPI_CS_GPIO_Port, SENSOR_SPI_CS_Pin);
 GpioPin drv8301_enable_gate(GPIOC, GPIO_PIN_15);
 GpioPin drv8301_fault(IC_FAULT_GPIO_Port, IC_FAULT_Pin);
 GpioPin dc_cal(DC_CAL_GPIO_Port, DC_CAL_Pin);
+GpioPin led(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
 
 SpiBus spi1(hspi1);
 SpiBus spi3(hspi3);
@@ -30,11 +31,11 @@ PwmChannel tim1_ch1(htim1, TIM_CHANNEL_1);
 
 HAL_StatusTypeDef init()
 {
-    bool ok = true;
-    ok = spi1.init() && ok;
+    bool ok = spi1.init();
     ok = spi3.init() && ok;
     ok = i2c1.init() && ok;
     ok = uart3.init() && ok;
+    ok = fdcan1.init() && ok;
     return ok ? HAL_OK : HAL_ERROR;
 }
 

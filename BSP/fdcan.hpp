@@ -48,6 +48,9 @@ public:
     FdcanBus(const FdcanBus&) = delete;
     FdcanBus& operator=(const FdcanBus&) = delete;
 
+    // Call from one task after scheduler startup, before transfers; keep the bus idle.
+    bool init();
+
     HAL_StatusTypeDef configFilter(const FDCAN_FilterTypeDef& filter) const;
     HAL_StatusTypeDef configGlobalFilter(uint32_t non_matching_std = FDCAN_REJECT,
                                          uint32_t non_matching_ext = FDCAN_REJECT,
@@ -116,6 +119,7 @@ private:
     static void errorStatusCallback(FDCAN_HandleTypeDef* hfdcan, uint32_t error_status_its);
 
     FDCAN_HandleTypeDef* handle_ = nullptr;
+    uint32_t queue_length_ = 0U;
     QueueHandle_t tx_queue_ = nullptr;
     FdcanTransferEvent active_tx_ = {};
     uint8_t rx_data_[Frame::MaxDataLength] = {};
