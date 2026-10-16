@@ -79,32 +79,107 @@ bool UartComm::send_pack(void* data, int size)
         return false;
     }
 
-    bsp::UartTransmitEvent event = {};
-    event.mode = tx_dma_buffer_ != nullptr ? bsp::UartTransmitMode::Dma : bsp::UartTransmitMode::Interrupt;
-    event.data = data;
-    event.size = static_cast<uint16_t>(size);
-    event.context = this;
-    event.before_cb = &UartComm::PrepareTransmit;
-    return port_.transmit(event) == bsp::Status::OK;
-}
-
-void UartComm::PrepareTransmit(bsp::UartTransmitEvent& event)
-{
-    auto& comm = *static_cast<UartComm*>(event.context);
-    const auto* command = static_cast<const Command*>(event.data);
-    uint8_t* frame = event.mode == bsp::UartTransmitMode::Dma ? comm.tx_dma_buffer_ : comm.tx_frame_;
-    // Use the validated descriptor length, not mutable caller metadata.
-    const std::size_t payload_size = event.size - sizeof(Command);
-    const uint32_t command_id = command->cmd;
-    std::memmove(frame + kFrameHeadSize, command->data, payload_size);
+    const std::size_t payload_size = static_cast<std::size_t>(size) - sizeof(Command);
+    const std::size_t frame_size = kFrameHeadSize + payload_size + kFrameCrcSize;
+    const bool from_isr = __get_IPSR() != 0U;
+    UBaseType_t interrupt_mask = 0U;
+    if (from_isr) {
+        interrupt_mask = portSET_INTERRUPT_MASK_FROM_ISR();
+    } else {
+        taskENTER_CRITICAL();
+    }
+    if (tx_descriptor_head_ - tx_descriptor_tail_ >= kTxDescriptorCount ||
+        tx_used_ + frame_size > kTxRingSize) {
+        if (from_isr) {
+            portCLEAR_INTERRUPT_MASK_FROM_ISR(interrupt_mask);
+        } else {
+            taskEXIT_CRITICAL();
+        }
+        return false;
+    }
+    const std::size_t descriptor = tx_descriptor_head_ % kTxDescriptorCount;
+    const std::size_t start = tx_head_;
+    const std::size_t first_size = (kTxRingSize - start < frame_size) ? kTxRingSize - start : frame_size;
+    uint8_t frame[kFrameMaxSize]{};
     frame[0] = kFrameHeader;
     frame[1] = static_cast<uint8_t>(payload_size);
-    // STM32 and the wire command ID are both little endian.
-    std::memcpy(frame + 2U, &command_id, sizeof(command_id));
-    const uint16_t crc = CalculateCrc(frame, event.size - kFrameCrcSize);
-    frame[event.size - 2U] = static_cast<uint8_t>(crc);
-    frame[event.size - 1U] = static_cast<uint8_t>(crc >> 8U);
-    event.data = frame;
+    std::memcpy(frame + 2U, &command->cmd, sizeof(command->cmd));
+    std::memcpy(frame + kFrameHeadSize, command->data, payload_size);
+    const uint16_t crc = CalculateCrc(frame, frame_size - kFrameCrcSize);
+    frame[frame_size - 2U] = static_cast<uint8_t>(crc);
+    frame[frame_size - 1U] = static_cast<uint8_t>(crc >> 8U);
+    std::memcpy(tx_ring_ + start, frame, first_size);
+    if (first_size < frame_size) {
+        std::memcpy(tx_ring_, frame + first_size, frame_size - first_size);
+    }
+    tx_descriptors_[descriptor] = {start, frame_size, first_size};
+    tx_head_ = (start + frame_size) % kTxRingSize;
+    tx_used_ += frame_size;
+    ++tx_descriptor_head_;
+    tx_segments_[descriptor][0] = {this, descriptor, first_size == frame_size};
+    tx_segments_[descriptor][1] = {this, descriptor, true};
+    bsp::UartTransmitEvent event = {};
+    event.mode = tx_dma_buffer_ != nullptr ? bsp::UartTransmitMode::Dma : bsp::UartTransmitMode::Interrupt;
+    event.data = tx_ring_ + start;
+    event.size = static_cast<uint16_t>(first_size);
+    event.context = &tx_segments_[descriptor][0];
+    event.after_cb = &UartComm::TransmitComplete;
+    if (from_isr) {
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(interrupt_mask);
+    } else {
+        taskEXIT_CRITICAL();
+    }
+    if (port_.transmit(event) == bsp::Status::OK) {
+        return true;
+    }
+    if (from_isr) {
+        interrupt_mask = portSET_INTERRUPT_MASK_FROM_ISR();
+    } else {
+        taskENTER_CRITICAL();
+    }
+    tx_head_ = start;
+    tx_used_ -= frame_size;
+    --tx_descriptor_head_;
+    if (from_isr) {
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(interrupt_mask);
+    } else {
+        taskEXIT_CRITICAL();
+    }
+    return false;
+}
+
+void UartComm::TransmitComplete(bsp::UartTransmitEvent& event)
+{
+    auto* segment = static_cast<TxSegment*>(event.context);
+    auto& comm = *segment->comm;
+    const std::size_t descriptor = segment->descriptor;
+    if (!segment->final_segment) {
+        const auto& tx = comm.tx_descriptors_[descriptor];
+        bsp::UartTransmitEvent next = {};
+        next.mode = event.mode;
+        next.data = comm.tx_ring_;
+        next.size = static_cast<uint16_t>(tx.size - tx.first_size);
+        next.context = &comm.tx_segments_[descriptor][1];
+        next.after_cb = &UartComm::TransmitComplete;
+        next.queue_front = true;
+        (void)comm.port_.transmit(next);
+        return;
+    }
+    const auto& tx = comm.tx_descriptors_[descriptor];
+    const bool from_isr = __get_IPSR() != 0U;
+    if (from_isr) {
+        const UBaseType_t mask = portSET_INTERRUPT_MASK_FROM_ISR();
+        comm.tx_tail_ = (tx.start + tx.size) % kTxRingSize;
+        comm.tx_used_ -= tx.size;
+        ++comm.tx_descriptor_tail_;
+        portCLEAR_INTERRUPT_MASK_FROM_ISR(mask);
+    } else {
+        taskENTER_CRITICAL();
+        comm.tx_tail_ = (tx.start + tx.size) % kTxRingSize;
+        comm.tx_used_ -= tx.size;
+        ++comm.tx_descriptor_tail_;
+        taskEXIT_CRITICAL();
+    }
 }
 
 bool UartComm::StartReceive()

@@ -317,7 +317,10 @@ Status UartPort::transmit(UartTransmitEvent& event)
 
     if (__get_IPSR() != 0U) {
         BaseType_t higher_priority_task_woken = pdFALSE;
-        if (xQueueSendFromISR(tx_queue_, &event, &higher_priority_task_woken) != pdPASS) {
+        const BaseType_t queued = event.queue_front
+                                      ? xQueueSendToFrontFromISR(tx_queue_, &event, &higher_priority_task_woken)
+                                      : xQueueSendFromISR(tx_queue_, &event, &higher_priority_task_woken);
+        if (queued != pdPASS) {
             return Status::BUSY;
         }
         (void)startNextTransmit(true, &higher_priority_task_woken);
@@ -325,7 +328,9 @@ Status UartPort::transmit(UartTransmitEvent& event)
         return Status::OK;
     }
 
-    if (xQueueSend(tx_queue_, &event, 0U) != pdPASS) {
+    const BaseType_t queued = event.queue_front ? xQueueSendToFront(tx_queue_, &event, 0U)
+                                                : xQueueSend(tx_queue_, &event, 0U);
+    if (queued != pdPASS) {
         return Status::BUSY;
     }
 

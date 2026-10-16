@@ -37,6 +37,7 @@ struct UartTransmitEvent {
     uint32_t error_code = HAL_UART_ERROR_NONE;
     Callback before_cb = nullptr;
     Callback after_cb = nullptr;
+    bool queue_front = false;
 };
 
 struct UartReceiveEvent {

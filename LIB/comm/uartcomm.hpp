@@ -27,17 +27,30 @@ public:
     bool set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size);
     // Callback runs in IRQ context; received command is valid only during callback.
     void register_recv_callback(std::function<void(void* data, int size)> callback) override;
-    // Queues the caller's pointer without copying. Keep the command valid and
-    // unchanged until its queued transfer starts and PrepareTransmit frames it.
+    // Copies and queues the command; the caller may release its storage on return.
     bool send_pack(void* data, int size) override;
 
 private:
     static uint16_t CalculateCrc(const uint8_t* data, std::size_t size);
-    static void PrepareTransmit(bsp::UartTransmitEvent& event);
+    static void TransmitComplete(bsp::UartTransmitEvent& event);
     static void ReceiveComplete(bsp::UartReceiveEvent& event);
 
     bool StartReceive();
     void ProcessReceive(const uint8_t* data, std::size_t size);
+
+    struct TxDescriptor {
+        std::size_t start = 0U;
+        std::size_t size = 0U;
+        std::size_t first_size = 0U;
+    };
+    struct TxSegment {
+        UartComm* comm = nullptr;
+        std::size_t descriptor = 0U;
+        bool final_segment = false;
+    };
+
+    static constexpr std::size_t kTxRingSize = 512U;
+    static constexpr std::size_t kTxDescriptorCount = 8U;
 
     bsp::UartPort& port_;
     std::function<void(void* data, int size)> recv_callback_;
@@ -45,7 +58,14 @@ private:
     uint8_t* tx_dma_buffer_ = nullptr;
     uint16_t rx_dma_size_ = 0U;
     uint8_t rx_byte_ = 0U;
-    uint8_t tx_frame_[kFrameMaxSize]{};
+    uint8_t tx_ring_[kTxRingSize]{};
+    TxDescriptor tx_descriptors_[kTxDescriptorCount]{};
+    TxSegment tx_segments_[kTxDescriptorCount][2]{};
+    std::size_t tx_head_ = 0U;
+    std::size_t tx_tail_ = 0U;
+    std::size_t tx_descriptor_head_ = 0U;
+    std::size_t tx_descriptor_tail_ = 0U;
+    std::size_t tx_used_ = 0U;
     uint8_t rx_frame_[kFrameMaxSize]{};
     std::size_t rx_frame_size_ = 0U;
     bool initialized_ = false;
