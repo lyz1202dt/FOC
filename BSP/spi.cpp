@@ -132,7 +132,7 @@ HAL_StatusTypeDef SpiBus::startHalTransfer(SpiTransferEvent& event) const
                : HAL_SPI_Receive_IT(handle_, rx_data, event.size);
 }
 
-bool SpiBus::enqueueTransfer(SpiTransferEvent& event)
+bool SpiBus::transfer(SpiTransferEvent& event)
 {
     if (!valid() || !transferValid(event)) {
         return false;
@@ -302,11 +302,6 @@ bool SpiBus::init()
 #else
     return false;
 #endif
-}
-
-bool SpiBus::transfer(SpiTransferEvent& event)
-{
-    return enqueueTransfer(event);
 }
 
 bool SpiBus::abort()

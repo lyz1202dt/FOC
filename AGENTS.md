@@ -12,7 +12,7 @@
 
 ## 入口与职责
 
-- STM32G431、CubeMX HAL/CMSIS、FreeRTOS，用户代码使用 C++17。`Core/`、`Drivers/`、`Middlewares/` 是生成代码或依赖，非必要不修改。
+- STM32G431、CubeMX HAL/CMSIS、FreeRTOS，用户代码使用 C++17。`Core/`、`Drivers/`、`Middlewares/` 是生成代码或依赖，如果修改它们是更好的选择，请询问用户以确认修改。
 - `Core/Src/app_freertos.c::StartDefaultTask()` 调用 C ABI 入口 `Task/app_main.cpp::app_main()`。
 - `Task/app_main.cpp` 装配 `Flash`、`CommManager`、`Motor`、`UartComm`，初始化外设和电机，注册 TIM1 更新回调，在线程中循环调用 `Motor::handle_event()`。
 - `BSP/hardware.cpp` 提供总线、GPIO、TIM1 SVPWM、ADC 测量及 TIM7 时间服务。快环由 TIM1 更新回调进入 `Motor::fast_loop()`；ADC 注入转换回调缓存测量值。

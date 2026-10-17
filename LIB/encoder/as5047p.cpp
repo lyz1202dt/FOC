@@ -1,212 +1,96 @@
 #include "as5047p.hpp"
 
-#include "spi.hpp"
 #include "hardware.hpp"
-#include "stm32g4xx_hal.h"
 
 namespace {
 
-constexpr uint16_t kParityBit = 0x8000U;
-constexpr uint16_t kReadBit = 0x4000U;
+// Read bit plus register address, with even parity across all 16 bits.
+constexpr uint16_t kReadAngleCommand = 0xFFFFU;  // ANGLECOM (0x3FFF).
+constexpr uint16_t kReadErrorCommand = 0x4001U;  // ERRFL (0x0001), clears errors.
 constexpr uint16_t kErrorFlag = 0x4000U;
-constexpr uint16_t kDataMask = 0x3FFFU;
+constexpr uint16_t kAngleMask = 0x3FFFU;
+constexpr float kRadiansPerCount = 6.2831853071795864769f / 16384.0f;
 
-constexpr uint16_t kErrflRegister = 0x0001U;
-constexpr uint16_t kAngleComRegister = 0x3FFFU;
+static_assert(std::atomic<bool>::is_always_lock_free);
 
-constexpr float kTwoPi = 6.2831853071795864769f;
-constexpr float kCountsPerTurn = 16384.0f;
+}  // namespace
 
-constexpr bsp::SpiHardwareParams kSpiOptions{
-    SPI_DATASIZE_16BIT, SPI_POLARITY_LOW, SPI_PHASE_2EDGE, SPI_FIRSTBIT_MSB};
-
-} // namespace
-
-AS5047P::AS5047P(Flash &flash) : Encoder(flash) {
-}
-
-void AS5047P::setDmaAddress(uint16_t* tx_word, uint16_t* rx_word) {
-    tx_dma_word_ = tx_word;
-    rx_dma_word_ = rx_word;
+AS5047P::AS5047P(Flash& flash) : Encoder(flash) {
+    transfer_.mode = bsp::SpiTransferMode::Interrupt;
+    transfer_.tx_data = &tx_word_;
+    transfer_.rx_data = &rx_word_;
+    transfer_.size = 1U;
+    transfer_.context = this;
+    // SPI hardware configuration comes from CubeMX; transfers leave it unchanged.
+    transfer_.before_cb = [](bsp::SpiTransferEvent&) {
+        BSP::sensor_spi_cs().write(false);
+        // tL >= 350 ns, even at the STM32G431 maximum clock of 170 MHz.
+        __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
+    };
+    transfer_.after_cb = [](bsp::SpiTransferEvent& event) {
+        BSP::sensor_spi_cs().write(true);
+        // tCSn >= 350 ns before another caller may submit the next frame.
+        __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
+        auto* self = static_cast<AS5047P*>(event.context);
+        if (event.status == bsp::SpiTransferStatus::Ok) {
+            uint16_t parity = self->rx_word_;
+            parity ^= static_cast<uint16_t>(parity >> 8);
+            parity ^= static_cast<uint16_t>(parity >> 4);
+            parity ^= static_cast<uint16_t>(parity >> 2);
+            parity ^= static_cast<uint16_t>(parity >> 1);
+            const bool valid_frame = (parity & 1U) == 0U &&
+                                    (self->rx_word_ & kErrorFlag) == 0U;
+            self->next_command_ = kReadAngleCommand;
+            if (self->pending_response_ == Response::Angle) {
+                if (valid_frame) {
+                    self->record_value(static_cast<float>(self->rx_word_ & kAngleMask) *
+                                       kRadiansPerCount);
+                } else if (self->tx_word_ != kReadErrorCommand) {
+                    self->next_command_ = kReadErrorCommand;
+                }
+            }
+            // MISO belongs to the preceding command, not the command just sent.
+            // Discard the first response and never interpret ERRFL as an angle.
+            self->pending_response_ = self->tx_word_ == kReadAngleCommand
+                                          ? Response::Angle : Response::ErrorFlags;
+        } else {
+            // A partial frame loses pipeline alignment. Clear errors and prime again.
+            self->pending_response_ = Response::None;
+            self->next_command_ = kReadErrorCommand;
+        }
+        // No automatic resubmission: get_value() controls the sampling rate.
+        self->read_pending_.store(false, std::memory_order_release);
+    };
 }
 
 bool AS5047P::init() {
-    if (started_) {
+    if (initialized_.load(std::memory_order_acquire)) {
         return true;
     }
-
-    pending_response_ = Response::None;
-    started_ = sensor_update();
-    return started_;
-}
-
-bool AS5047P::sensor_update() {
-    return start_exchange(build_read_command(kAngleComRegister), Response::Angle);
-}
-
-uint16_t AS5047P::get_raw_value() const {
-    uint16_t value = 0U;
-    __disable_irq();
-    value = raw_value_;
-    __enable_irq();
-    return value;
-}
-
-uint16_t AS5047P::get_error_flags() const {
-    uint16_t value = 0U;
-    __disable_irq();
-    value = error_flags_;
-    __enable_irq();
-    return value;
-}
-
-uint32_t AS5047P::get_error_count() const {
-    uint32_t value = 0U;
-    __disable_irq();
-    value = error_count_;
-    __enable_irq();
-    return value;
-}
-
-void AS5047P::on_transfer_complete(void* ctx, bool success) {
-    AS5047P* self = static_cast<AS5047P*>(ctx);
-
-    self->in_flight_ = false;
-    const Response response = self->active_response_;
-    self->active_response_ = Response::None;
-
-    bool request_error_flags = false;
-    if (!success) {
-        ++self->error_count_;
-        self->pending_response_ = Response::None;
-    } else {
-        const uint16_t frame = *self->rxDmaWord();
-        switch (response) {
-        case Response::Angle:
-            request_error_flags = !self->process_angle_frame(frame);
-            break;
-        case Response::ErrorFlags:
-            (void)self->process_error_flags_frame(frame);
-            break;
-        case Response::None:
-        default:
-            break;
-        }
-    }
-
-    uint16_t command = build_read_command(kAngleComRegister);
-    Response command_response = Response::Angle;
-    if (request_error_flags && self->pending_response_ != Response::ErrorFlags) {
-        command = build_read_command(kErrflRegister);
-        command_response = Response::ErrorFlags;
-    }
-
-    if (!self->start_exchange(command, command_response)) {
-        self->started_ = false;
-    }
-}
-
-uint16_t AS5047P::build_read_command(uint16_t address) {
-    uint16_t frame = static_cast<uint16_t>(kReadBit | (address & kDataMask));
-    if (!has_even_parity(frame)) {
-        frame |= kParityBit;
-    }
-    return frame;
-}
-
-bool AS5047P::has_even_parity(uint16_t frame) {
-    frame ^= static_cast<uint16_t>(frame >> 8);
-    frame ^= static_cast<uint16_t>(frame >> 4);
-    frame ^= static_cast<uint16_t>(frame >> 2);
-    frame ^= static_cast<uint16_t>(frame >> 1);
-    return (frame & 1U) == 0U;
-}
-
-uint16_t* AS5047P::txDmaWord() {
-    return tx_dma_word_ != nullptr ? tx_dma_word_ : &tx_word_;
-}
-
-uint16_t* AS5047P::rxDmaWord() {
-    return rx_dma_word_ != nullptr ? rx_dma_word_ : &rx_word_;
-}
-
-const uint16_t* AS5047P::rxDmaWord() const {
-    return rx_dma_word_ != nullptr ? rx_dma_word_ : &rx_word_;
-}
-
-bool AS5047P::start_exchange(uint16_t command, Response command_response) {
-    if (in_flight_) {
-        return true;
-    }
-
-    const Response old_active = active_response_;
-    const Response old_pending = pending_response_;
-    const bool old_in_flight = in_flight_;
-
-    uint16_t* tx_word = txDmaWord();
-    uint16_t* rx_word = rxDmaWord();
-    if (tx_word == nullptr || rx_word == nullptr) {
+    auto& bus = BSP::sensor_spi_bus();
+    if (!bus.valid()) {
         return false;
     }
 
-    *tx_word = command;
-    *rx_word = 0U;
-    active_response_ = pending_response_;
-    pending_response_ = command_response;
-    in_flight_ = true;
-
-    transfer_.tx_data = tx_word;
-    transfer_.rx_data = rx_word;
-    transfer_.size = 1U;
-    transfer_.mode = bsp::SpiTransferMode::Dma;
-    transfer_.context = this;
-    transfer_.hardware = kSpiOptions;
-    transfer_.before_cb = [](bsp::SPITransfer&) {
-        BSP::sensor_spi_cs().write(false);
-    };
-    transfer_.after_cb = [](bsp::SPITransfer& transfer) {
-        BSP::sensor_spi_cs().write(true);
-        AS5047P::on_transfer_complete(
-            transfer.context,
-            transfer.status == bsp::SpiTransferStatus::Ok);
-    };
-
-    const bool accepted = BSP::sensor_spi_bus().transfer(transfer_);
-
-    if (!accepted) {
-        active_response_ = old_active;
-        pending_response_ = old_pending;
-        in_flight_ = old_in_flight;
-    }
-
-    return accepted;
-}
-
-bool AS5047P::process_angle_frame(uint16_t frame) {
-    if (!has_even_parity(frame) || (frame & kErrorFlag) != 0U) {
-        ++error_count_;
-        return false;
-    }
-
-    const uint16_t raw = static_cast<uint16_t>(frame & kDataMask);
-    const float rad = static_cast<float>(raw) * kTwoPi / kCountsPerTurn;
-
-    __disable_irq();
-    raw_value_ = raw;
-    __enable_irq();
-
-    record_value(rad);
+    BSP::sensor_spi_cs().write(true);
+    initialized_.store(true, std::memory_order_release);
     return true;
 }
 
-bool AS5047P::process_error_flags_frame(uint16_t frame) {
-    if (!has_even_parity(frame)) {
-        ++error_count_;
-        return false;
+float AS5047P::get_value() {
+    const float rad = Encoder::get_value();
+    if (!initialized_.load(std::memory_order_acquire)) {
+        return rad;
+    }
+    bool expected = false;
+    if (!read_pending_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return rad;
     }
 
-    __disable_irq();
-    error_flags_ = static_cast<uint16_t>(frame & kDataMask);
-    __enable_irq();
-    return true;
+    tx_word_ = next_command_;
+    if (!BSP::sensor_spi_bus().transfer(transfer_)) {
+        // Queue rejection sends no frame, so keep the existing pipeline state.
+        read_pending_.store(false, std::memory_order_release);
+    }
+    return rad;
 }

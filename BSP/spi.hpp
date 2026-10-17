@@ -85,7 +85,6 @@ private:
 
     bool inIsr() const;
     bool transferValid(const SpiTransferEvent& event) const;
-    bool enqueueTransfer(SpiTransferEvent& event);
     bool takeNextTransfer(bool from_isr, BaseType_t* higher_priority_task_woken);
     bool startNextTransfer(bool from_isr, BaseType_t* higher_priority_task_woken = nullptr);
     void completeTransfer(HAL_StatusTypeDef status, bool from_isr, bool start_next);

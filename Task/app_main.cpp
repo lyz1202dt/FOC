@@ -48,6 +48,16 @@ struct Drv8301TestResult {
 
 Drv8301TestResult drv8301_test_result;
 
+// 仅 app_main 线程写入；暂停 CPU 后在调试器中查看。
+struct As5047pTestResult {
+    bool spi_ready{false};
+    bool encoder_ready{false};
+    bool value_available{false};
+    float angle_rad{0.0f};
+};
+
+As5047pTestResult as5047p_test_result;
+
 // uint8_t send_buffer[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
 // uint8_t send_buffer2[16]={15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
 
@@ -71,6 +81,30 @@ extern "C" void app_main(void* param) {
 
 
     flash.init();
+
+    // AS5047P 独立采样测试：不启动电机控制环，默认使用 SPI IT 模式。
+    static AS5047P test_encoder(flash);
+    BSP::sensor_spi_cs().write(true);
+    as5047p_test_result.spi_ready = BSP::sensor_spi_bus().init();
+    if (as5047p_test_result.spi_ready) {
+        as5047p_test_result.encoder_ready = test_encoder.init();
+    }
+
+    uint32_t led_count = 0U;
+    while (true) {
+        // get_value() 返回上次的位置，并发起一帧异步传输；前两帧建立读取流水线。
+        if (as5047p_test_result.encoder_ready) {
+            as5047p_test_result.angle_rad = test_encoder.get_value();
+            as5047p_test_result.value_available = test_encoder.value_is_available(10000U);
+        }
+        // 新鲜数据：约 500ms 翻转 LED；初始化失败或数据超时：约 100ms。
+        const uint32_t led_period = as5047p_test_result.value_available ? 500U : 100U;
+        if (++led_count >= led_period) {
+            led_count = 0U;
+            bsp::hardware::led.toggle();
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
 
     // Encoder* encoder = nullptr;
     // MotorDriver* driver = nullptr;
@@ -108,92 +142,92 @@ extern "C" void app_main(void* param) {
     // comm_manager.register_comm_channel(&uart_comm); //其它的通信接口
     // 上电通讯测试：先配置驱动器，最后启动 TIM1，不运行电机控制环。
     // 静态存储避免占用 defaultTask 的小栈，也不需要 new。
-    static DRV8301 driver(
-        flash, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
-        BSP::drv8301_dc_cal());
-    BSP::drv8301_enable_gate().write(false);
-    BSP::drv8301_dc_cal().write(false);
-    BSP::ic_spi_cs().write(true);
+    // static DRV8301 driver(
+    //     flash, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+    //     BSP::drv8301_dc_cal());
+    // BSP::drv8301_enable_gate().write(false);
+    // BSP::drv8301_dc_cal().write(false);
+    // BSP::ic_spi_cs().write(true);
 
-    do {
-        drv8301_test_result.stage = "SpiInit";
-        if (!BSP::ic_spi_bus().init()) {
-            drv8301_test_result.reason = "SPI bus initialization failed";
-            break;
-        }
+    // do {
+    //     drv8301_test_result.stage = "SpiInit";
+    //     if (!BSP::ic_spi_bus().init()) {
+    //         drv8301_test_result.reason = "SPI bus initialization failed";
+    //         break;
+    //     }
 
-        // 先使 ADC 等待外部触发，驱动器配置完成后再启动 TIM1 TRGO。
-        drv8301_test_result.stage = "AdcStart";
-        if (!BSP::adc_measure_start()) {
-            drv8301_test_result.reason = "ADC injected sampling start failed";
-            break;
-        }
-        // init() 仅执行 EN_GATE 上电、配置寄存器写入/回读及故障检查。
-        drv8301_test_result.stage = "DriverInit";
-        if (!driver.init()) {
-            driver.lookup_reason(drv8301_test_result.reason);
-            drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
-            break;
-        }
+    //     // 先使 ADC 等待外部触发，驱动器配置完成后再启动 TIM1 TRGO。
+    //     drv8301_test_result.stage = "AdcStart";
+    //     if (!BSP::adc_measure_start()) {
+    //         drv8301_test_result.reason = "ADC injected sampling start failed";
+    //         break;
+    //     }
+    //     // init() 仅执行 EN_GATE 上电、配置寄存器写入/回读及故障检查。
+    //     drv8301_test_result.stage = "DriverInit";
+    //     if (!driver.init()) {
+    //         driver.lookup_reason(drv8301_test_result.reason);
+    //         drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
+    //         break;
+    //     }
 
-        drv8301_test_result.stage = "PwmInit";
-        if (!BSP::tim1_svpwm().init()) {
-            drv8301_test_result.reason = "TIM1 PWM initialization failed";
-            break;
-        }
+    //     drv8301_test_result.stage = "PwmInit";
+    //     if (!BSP::tim1_svpwm().init()) {
+    //         drv8301_test_result.reason = "TIM1 PWM initialization failed";
+    //         break;
+    //     }
 
-        // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
-        BSP::tim1_svpwm().enable_output(false);
-        drv8301_test_result.stage = "CurrentCalibration";
-        if (!driver.calibrate_current_offsets()) {
-            drv8301_test_result.reason = "Current offset calibration failed";
-            break;
-        }
-        BSP::tim1_svpwm().enable_output(true);
+    //     // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
+    //     BSP::tim1_svpwm().enable_output(false);
+    //     drv8301_test_result.stage = "CurrentCalibration";
+    //     if (!driver.calibrate_current_offsets()) {
+    //         drv8301_test_result.reason = "Current offset calibration failed";
+    //         break;
+    //     }
+    //     BSP::tim1_svpwm().enable_output(true);
 
-        drv8301_test_result.stage = "AdcSamples";
-        if (!driver.get_vbus_voltage(drv8301_test_result.vbus_voltage) ||
-            !driver.get_phrase_current(drv8301_test_result.phase_a_current,
-                                       drv8301_test_result.phase_b_current,
-                                       drv8301_test_result.phase_c_current)) {
-            drv8301_test_result.reason = "Fresh voltage/current samples unavailable";
-            break;
-        }
-        drv8301_test_result.passed = true;
-        drv8301_test_result.stage = "Monitoring";
-    } while (false);
+    //     drv8301_test_result.stage = "AdcSamples";
+    //     if (!driver.get_vbus_voltage(drv8301_test_result.vbus_voltage) ||
+    //         !driver.get_phrase_current(drv8301_test_result.phase_a_current,
+    //                                    drv8301_test_result.phase_b_current,
+    //                                    drv8301_test_result.phase_c_current)) {
+    //         drv8301_test_result.reason = "Fresh voltage/current samples unavailable";
+    //         break;
+    //     }
+    //     drv8301_test_result.passed = true;
+    //     drv8301_test_result.stage = "Monitoring";
+    // } while (false);
 
-    if (!drv8301_test_result.passed) {
-        // 关闭 EN_GATE 前保留首次故障，避免复位芯片后丢失原因。
-        drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
-        if (!driver.is_ready()) {
-            driver.lookup_reason(drv8301_test_result.reason);
-        }
-    }
+    // if (!drv8301_test_result.passed) {
+    //     // 关闭 EN_GATE 前保留首次故障，避免复位芯片后丢失原因。
+    //     drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
+    //     if (!driver.is_ready()) {
+    //         driver.lookup_reason(drv8301_test_result.reason);
+    //     }
+    // }
 
-    while (true) {
-        if (drv8301_test_result.passed) {
-            drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
-            const bool ready = driver.is_ready();
-            const int reason_code = driver.lookup_reason(drv8301_test_result.reason);
-            if (!drv8301_test_result.status_valid || !ready || reason_code != 0) {
-                // 保留首个失败结果，不自动重启或清故障。
-                if (!drv8301_test_result.status_valid) {
-                    drv8301_test_result.reason = "Status register SPI read failed";
-                }
-                drv8301_test_result.passed = false;
-                drv8301_test_result.stage = "MonitorFailed";
-            }
-        }
+    // while (true) {
+    //     if (drv8301_test_result.passed) {
+    //         drv8301_test_result.status_valid = driver.read_status(drv8301_test_result.status);
+    //         const bool ready = driver.is_ready();
+    //         const int reason_code = driver.lookup_reason(drv8301_test_result.reason);
+    //         if (!drv8301_test_result.status_valid || !ready || reason_code != 0) {
+    //             // 保留首个失败结果，不自动重启或清故障。
+    //             if (!drv8301_test_result.status_valid) {
+    //                 drv8301_test_result.reason = "Status register SPI read failed";
+    //             }
+    //             drv8301_test_result.passed = false;
+    //             drv8301_test_result.stage = "MonitorFailed";
+    //         }
+    //     }
 
-        if (!drv8301_test_result.passed) {
-            driver.set_enable(false);
-            BSP::drv8301_dc_cal().write(false);
-        }
-        // 通过：每 500ms 翻转 LED；失败：每 100ms 翻转 LED。
-        bsp::hardware::led.toggle();
-        vTaskDelay(pdMS_TO_TICKS(drv8301_test_result.passed ? 500 : 100));
-    }
+    //     if (!drv8301_test_result.passed) {
+    //         driver.set_enable(false);
+    //         BSP::drv8301_dc_cal().write(false);
+    //     }
+    //     // 通过：每 500ms 翻转 LED；失败：每 100ms 翻转 LED。
+    //     bsp::hardware::led.toggle();
+    //     vTaskDelay(pdMS_TO_TICKS(drv8301_test_result.passed ? 500 : 100));
+    // }
 
     // flash.write_value("value1", 10);
     // flash.write_value("value2", 20);

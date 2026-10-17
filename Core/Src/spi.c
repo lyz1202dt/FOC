@@ -26,6 +26,8 @@
 
 SPI_HandleTypeDef hspi1;
 SPI_HandleTypeDef hspi3;
+DMA_HandleTypeDef hdma_spi3_rx;
+DMA_HandleTypeDef hdma_spi3_tx;
 
 /* SPI1 init function */
 void MX_SPI1_Init(void)
@@ -45,7 +47,7 @@ void MX_SPI1_Init(void)
   hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi1.Init.CLKPhase = SPI_PHASE_2EDGE;
   hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -79,7 +81,7 @@ void MX_SPI3_Init(void)
   hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
   hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
   hspi3.Init.NSS = SPI_NSS_SOFT;
-  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_16;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_32;
   hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
   hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
   hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
@@ -145,9 +147,44 @@ void HAL_SPI_MspInit(SPI_HandleTypeDef* spiHandle)
     GPIO_InitStruct.Pin = SENSOR_SPI_SCK_Pin|SENSOR_SPI_MISO_Pin|SENSOR_SPI_MOSI_Pin;
     GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Pull = GPIO_NOPULL;
-    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
     GPIO_InitStruct.Alternate = GPIO_AF6_SPI3;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    /* SPI3 DMA Init */
+    /* SPI3_RX Init */
+    hdma_spi3_rx.Instance = DMA1_Channel3;
+    hdma_spi3_rx.Init.Request = DMA_REQUEST_SPI3_RX;
+    hdma_spi3_rx.Init.Direction = DMA_PERIPH_TO_MEMORY;
+    hdma_spi3_rx.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_spi3_rx.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_spi3_rx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma_spi3_rx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+    hdma_spi3_rx.Init.Mode = DMA_NORMAL;
+    hdma_spi3_rx.Init.Priority = DMA_PRIORITY_LOW;
+    if (HAL_DMA_Init(&hdma_spi3_rx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    __HAL_LINKDMA(spiHandle,hdmarx,hdma_spi3_rx);
+
+    /* SPI3_TX Init */
+    hdma_spi3_tx.Instance = DMA1_Channel4;
+    hdma_spi3_tx.Init.Request = DMA_REQUEST_SPI3_TX;
+    hdma_spi3_tx.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_spi3_tx.Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_spi3_tx.Init.MemInc = DMA_MINC_ENABLE;
+    hdma_spi3_tx.Init.PeriphDataAlignment = DMA_PDATAALIGN_HALFWORD;
+    hdma_spi3_tx.Init.MemDataAlignment = DMA_MDATAALIGN_HALFWORD;
+    hdma_spi3_tx.Init.Mode = DMA_NORMAL;
+    hdma_spi3_tx.Init.Priority = DMA_PRIORITY_LOW;
+    if (HAL_DMA_Init(&hdma_spi3_tx) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    __HAL_LINKDMA(spiHandle,hdmatx,hdma_spi3_tx);
 
     /* SPI3 interrupt Init */
     HAL_NVIC_SetPriority(SPI3_IRQn, 5, 0);
@@ -196,6 +233,10 @@ void HAL_SPI_MspDeInit(SPI_HandleTypeDef* spiHandle)
     PB5     ------> SPI3_MOSI
     */
     HAL_GPIO_DeInit(GPIOB, SENSOR_SPI_SCK_Pin|SENSOR_SPI_MISO_Pin|SENSOR_SPI_MOSI_Pin);
+
+    /* SPI3 DMA DeInit */
+    HAL_DMA_DeInit(spiHandle->hdmarx);
+    HAL_DMA_DeInit(spiHandle->hdmatx);
 
     /* SPI3 interrupt Deinit */
     HAL_NVIC_DisableIRQ(SPI3_IRQn);
