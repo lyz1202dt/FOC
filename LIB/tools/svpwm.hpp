@@ -15,6 +15,7 @@ public:
     bool init();
     void register_timer_update_cb(TimerUpdateCallback callback);
     void set_voltage(float dc_bus, float v1, float v2, float v3);
+    void enable_output(bool enable);
 
     void timer_irq();
 

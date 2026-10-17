@@ -69,7 +69,7 @@ void MX_GPIO_Init(void)
   /*Configure GPIO pin : IC_FAULT_Pin */
   GPIO_InitStruct.Pin = IC_FAULT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
   HAL_GPIO_Init(IC_FAULT_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : DC_CAL_Pin IC_SPI_CS_Pin */

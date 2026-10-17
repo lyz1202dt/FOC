@@ -114,7 +114,7 @@ bool DRV8301::init() {
 
     delay_us(40); // DRV8301 reset low time is only tens of us.
     enable_gate_.write(true);
-    HAL_Delay(20); // t_spi_ready max is 10ms.
+    vTaskDelay(pdMS_TO_TICKS(20)); // t_spi_ready max is 10ms.
 
     // ODrive writes control register 1 multiple times because the first write
     // can be ignored on some boards.
@@ -160,14 +160,6 @@ bool DRV8301::init() {
         enabled_ = false;
         svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
         last_fault_ = FaultType_FAULT;
-        return false;
-    }
-
-    if (!calibrate_current_offsets()) {
-        state_ = State::Uninitialized;
-        enabled_ = false;
-        svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
-        last_fault_ = FaultType_CurrentSenseSaturation;
         return false;
     }
 

@@ -38,6 +38,23 @@ void SVPWM::timer_irq() {
     }
 }
 
+void SVPWM::enable_output(bool enable) {
+    TIM_TypeDef* timer = timer_.native()->Instance;
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+
+    // Drive all three main/complementary outputs low when MOE is cleared.
+    // Keep the channels and counter enabled for update IRQs and ADC triggers.
+    CLEAR_BIT(timer->CR2, TIM_CR2_OIS1 | TIM_CR2_OIS1N
+                             | TIM_CR2_OIS2 | TIM_CR2_OIS2N
+                             | TIM_CR2_OIS3 | TIM_CR2_OIS3N);
+    // Disable automatic re-enabling on update events while output is off.
+    MODIFY_REG(timer->BDTR, TIM_BDTR_AOE | TIM_BDTR_MOE,
+               TIM_BDTR_OSSI | (enable ? TIM_BDTR_MOE : 0U));
+
+    __set_PRIMASK(interrupt_mask);
+}
+
 void SVPWM::set_voltage(float dc_bus, float v1, float v2, float v3) {
     const float half_period = 0.5f * static_cast<float>(timer_.autoreload());
     if (!(dc_bus > 1e-6f)) {

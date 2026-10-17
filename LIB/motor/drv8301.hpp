@@ -43,6 +43,7 @@ public:
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
     bool config(float requested_gain, float* actual_gain = nullptr);
+    // 配置并使能驱动器，不依赖 PWM/ADC；启动采样后须显式校准电流零点。
     bool init() override;
     bool is_ready() override;
     bool set_enable(bool enable = true) override;
