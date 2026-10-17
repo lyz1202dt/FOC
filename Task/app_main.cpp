@@ -3,6 +3,7 @@
 #include "as5600.hpp"
 #include "comm.hpp"
 #include "drv8301.hpp"
+#include "encoder.hpp"
 #include "hardware.hpp"
 #include "i2c.hpp"
 #include "pack.h"
@@ -15,6 +16,8 @@
 #include "flash.hpp"
 #include "motor.hpp"
 #include "uartcomm.hpp"
+
+#include <atomic>
 
 TaskHandle_t motor_slow_loop_task_handle;
 void motor_slow_loop(void* param);
@@ -32,6 +35,7 @@ UartComm uart_comm(BSP::uart_comm_port());
 uint8_t send_buffer[16]={0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
 uint8_t send_buffer2[16]={15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
 
+float debug_rad;
 extern "C" void app_main(void* param) {
     Command* send1;
     Command* send2;
@@ -48,24 +52,30 @@ extern "C" void app_main(void* param) {
     // BSP::ic_spi_bus().init();
     //BSP::tim1_svpwm().init();
     // BSP::sensor_spi_bus().init();
-    // BSP::sensor_i2c_bus().init();
-
-    flash.init();
-    Encoder* encoder = nullptr;
-    MotorDriver* driver = nullptr;
-    load_components_from_config(encoder, driver);
-    if (!motor.install_driver(encoder, driver)) {
-        while (1) {
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
-    }
-
     
 
+    flash.init();
+    
+    // Encoder* encoder = nullptr;
+    // MotorDriver* driver = nullptr;
+    // load_components_from_config(encoder, driver);
+    // if (!motor.install_driver(encoder, driver)) {
+    //     while (1) {
+    //         vTaskDelay(pdMS_TO_TICKS(1000));
+    //     }
+    // }
+    const bool i2c_ready = BSP::sensor_i2c_bus().init();
+    Encoder* encoder = new AS5600(flash, BSP::sensor_i2c_bus());
+    encoder->init();
+
+    int cnt=0;
     while (1) {
+        cnt=(cnt+1)%500;
+        if(!cnt)
             bsp::hardware::led.toggle();
-            vTaskDelay(pdMS_TO_TICKS(1000));
-        }
+        debug_rad=encoder->get_value();
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
     // uart_comm.init();
     // uart_comm.register_recv_callback([](Command* data){
     //     bsp::hardware::led.toggle();
@@ -78,7 +88,7 @@ extern "C" void app_main(void* param) {
     // }
 
     // comm_manager.register_comm_channel(&uart_comm);
-    // // comm_manager.register_comm_channel(&uart_comm); //其它的通信接口
+    // comm_manager.register_comm_channel(&uart_comm); //其它的通信接口
 
     
     //flash.write_value("value1", 10);

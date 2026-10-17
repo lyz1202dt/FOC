@@ -1,0 +1,20 @@
+[mcp_servers.logic2]
+url = "http://127.0.0.1:10530"
+
+[mcp_servers.logic2.tools.get_devices]
+approval_mode = "approve"
+
+[mcp_servers.logic2.tools.start_capture]
+approval_mode = "approve"
+
+[mcp_servers.logic2.tools.wait_capture]
+approval_mode = "approve"
+
+[mcp_servers.logic2.tools.export_raw_data_csv]
+approval_mode = "approve"
+
+[mcp_servers.logic2.tools.add_analyzer]
+approval_mode = "approve"
+
+[mcp_servers.logic2.tools.save_capture]
+approval_mode = "approve"
