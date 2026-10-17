@@ -9,9 +9,11 @@ constexpr uint8_t kMagnetTooWeak = 1U << 4;
 constexpr uint8_t kMagnetTooStrong = 1U << 3;
 constexpr uint8_t kStatusValid = 1U << 7;
 constexpr float kRadiansPerCount = 2.0f * 3.14159265358979323846f / 4096.0f;
+constexpr uint32_t kReadTimeoutMs = 10U;
 
 static_assert(std::atomic<bool>::is_always_lock_free);
 static_assert(std::atomic<uint8_t>::is_always_lock_free);
+static_assert(std::atomic<uint32_t>::is_always_lock_free);
 
 }  // namespace
 
@@ -27,28 +29,98 @@ AS5600::AS5600(Flash& flash, BSP::I2CBus& bus, bool use_angle_when_magnet_weak)
     transfer_.size = sizeof(recv_buffer_);
     transfer_.param = this;
     transfer_.transmited_cb = [](bsp::I2CTransfer* transfer) {
-        AS5600::on_read_complete(transfer->param,
-            transfer->status == HAL_OK && transfer->error_code == HAL_I2C_ERROR_NONE);
+        auto* self = static_cast<AS5600*>(transfer->param);
+        if (transfer->status == HAL_OK && transfer->error_code == HAL_I2C_ERROR_NONE) {
+            const uint8_t status = self->recv_buffer_[0];
+            // ANGLE is at offsets 3 and 4; mask the unused high nibble.
+            const uint16_t angle_count =
+                (static_cast<uint16_t>(self->recv_buffer_[3] & 0x0FU) << 8) |
+                static_cast<uint16_t>(self->recv_buffer_[4]);
+            if ((status & kMagnetDetected) != 0U &&
+                (status & kMagnetTooStrong) == 0U &&
+                (self->use_angle_when_magnet_weak_ || (status & kMagnetTooWeak) == 0U)) {
+                self->record_value(static_cast<float>(angle_count) * kRadiansPerCount);
+            }
+            self->status_.store(status | kStatusValid, std::memory_order_release);
+        } else {
+            self->status_.store(0U, std::memory_order_release);
+            // NACK is a completed transaction; BUSY/bus errors need peripheral recovery.
+            if (transfer->status == HAL_BUSY ||
+                (transfer->error_code & (HAL_I2C_ERROR_BERR | HAL_I2C_ERROR_ARLO |
+                                         HAL_I2C_ERROR_OVR)) != 0U) {
+                self->recovery_pending_.store(true, std::memory_order_release);
+            }
+        }
+
+        // Release ownership only after consuming the receive buffer.
+        self->read_pending_.store(false, std::memory_order_release);
     };
 }
 
 bool AS5600::init() {
-    return read_pending_.load(std::memory_order_acquire) || sensor_update();
+    if (recovery_task_ != nullptr) {
+        return true;
+    }
+    if (!bus_.valid()) {
+        return false;
+    }
+    return xTaskCreate([](void* context) {
+        auto* self = static_cast<AS5600*>(context);
+        for (;;) {
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            if (self->recovery_pending_.load(std::memory_order_acquire)) {
+                if (!self->bus_.reset(self->transfer_)) {
+                    // Another bus client owns the peripheral. Retry on a later notification.
+                    continue;
+                }
+                self->status_.store(0U, std::memory_order_release);
+                self->read_pending_.store(false, std::memory_order_release);
+                self->recovery_pending_.store(false, std::memory_order_release);
+            }
+        }
+    }, "as5600_recover", 192U, this, tskIDLE_PRIORITY + 1U,
+       &recovery_task_) == pdPASS;
 }
 
-bool AS5600::sensor_update() {
+float AS5600::get_value() {
+    const float rad = Encoder::get_value();
+    if (recovery_task_ == nullptr) {
+        return rad;
+    }
+    // Serialize the deadline check with the completion ISR and recovery task.
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    if (read_pending_.load(std::memory_order_acquire) &&
+        HAL_GetTick() - read_started_ms_.load(std::memory_order_relaxed) >= kReadTimeoutMs) {
+        recovery_pending_.store(true, std::memory_order_release);
+    }
+    const bool recover = recovery_pending_.load(std::memory_order_acquire);
     bool expected = false;
-    if (!read_pending_.compare_exchange_strong(expected, true,
-                                               std::memory_order_acq_rel)) {
-        return false;
+    const bool start_read = !recover && read_pending_.compare_exchange_strong(
+        expected, true, std::memory_order_acq_rel);
+    if (start_read) {
+        read_started_ms_.store(HAL_GetTick(), std::memory_order_relaxed);
+    }
+    __set_PRIMASK(interrupt_mask);
+    if (recover) {
+        if (__get_IPSR() != 0U) {
+            BaseType_t task_woken = pdFALSE;
+            vTaskNotifyGiveFromISR(recovery_task_, &task_woken);
+            portYIELD_FROM_ISR(task_woken);
+        } else {
+            xTaskNotifyGive(recovery_task_);
+        }
+        return rad;
+    }
+    if (!start_read) {
+        return rad;
     }
 
     if (!bus_.transferIt(transfer_)) {
         status_.store(0U, std::memory_order_release);
         read_pending_.store(false, std::memory_order_release);
-        return false;
     }
-    return true;
+    return rad;
 }
 
 bool AS5600::GetMagnetStatus(MagnetStatus& status) const {
@@ -60,30 +132,4 @@ bool AS5600::GetMagnetStatus(MagnetStatus& status) const {
     status.too_weak = (value & kMagnetTooWeak) != 0U;
     status.too_strong = (value & kMagnetTooStrong) != 0U;
     return true;
-}
-
-void AS5600::on_read_complete(void* ctx, bool success) {
-    auto* self = static_cast<AS5600*>(ctx);
-    if (success) {
-        const uint8_t status = self->recv_buffer_[0];
-        // ANGLE is at offsets 3 and 4; mask the unused high nibble.
-        const uint16_t angle_count =
-            (static_cast<uint16_t>(self->recv_buffer_[3] & 0x0FU) << 8) |
-            static_cast<uint16_t>(self->recv_buffer_[4]);
-        if ((status & kMagnetDetected) != 0U &&
-            (status & kMagnetTooStrong) == 0U &&
-            (self->use_angle_when_magnet_weak_ || (status & kMagnetTooWeak) == 0U)) {
-            self->record_value(static_cast<float>(angle_count) * kRadiansPerCount);
-        }
-        self->status_.store(status | kStatusValid, std::memory_order_release);
-    } else {
-        self->status_.store(0U, std::memory_order_release);
-    }
-
-    // Release ownership only after consuming the receive buffer. Retry errors
-    // explicitly from the task to avoid recursion on immediate HAL failures.
-    self->read_pending_.store(false, std::memory_order_release);
-    if (success) {
-        (void)self->sensor_update();
-    }
 }

@@ -4,6 +4,7 @@
 #include "i2c.hpp"
 
 #include <atomic>
+#include "task.h"
 
 class AS5600 : public Encoder {
 public:
@@ -15,19 +16,20 @@ public:
 
     // Allow angle updates with a weak magnetic field by default.
     AS5600(Flash& flash, BSP::I2CBus& bus, bool use_angle_when_magnet_weak = true);
-    // Bus must already be initialized. Starts continuous asynchronous sampling.
+    // Call once from a task after initializing the bus; object has application lifetime.
     bool init() override;
-    // Restarts sampling after a transfer failure; false while a read is pending.
-    bool sensor_update();
+    // Bus must already be initialized. Requests a read and returns the cached angle.
+    float get_value() override;
     // Returns false before the first successful read or after a transfer failure.
     bool GetMagnetStatus(MagnetStatus& status) const;
 private:
-    static void on_read_complete(void* ctx, bool success);
-
     BSP::I2CBus& bus_;
     const bool use_angle_when_magnet_weak_;
     bsp::I2CTransfer transfer_{};
     uint8_t recv_buffer_[5]{};
     std::atomic<bool> read_pending_{false};
     std::atomic<uint8_t> status_{0U};
+    std::atomic<uint32_t> read_started_ms_{0U};
+    std::atomic<bool> recovery_pending_{false};
+    TaskHandle_t recovery_task_ = nullptr;
 };

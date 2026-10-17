@@ -43,6 +43,10 @@ public:
     bool init();
     bool transferIt(I2CTransfer& transfer);
     bool abort();
+    // Task only. Resets a stalled IT transfer (or idle peripheral), preserving queued requests.
+    // Restores handle.Init and the board defaults: analog filter on, digital filter off.
+    // Caller must prevent resubmission of transfer until this returns.
+    bool reset(I2CTransfer& transfer);
 
     I2C_HandleTypeDef* native() const { return handle_; }
     bool valid() const { return handle_ != nullptr && queue_ != nullptr; }

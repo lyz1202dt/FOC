@@ -294,6 +294,69 @@ bool I2CBus::abort()
     return status == HAL_OK;
 }
 
+bool I2CBus::reset(I2CTransfer& transfer)
+{
+    if (inIsr() || !valid()) {
+        return false;
+    }
+
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    if ((active_transfer_ != nullptr && active_transfer_ != &transfer) ||
+        (handle_->hdmatx != nullptr && HAL_DMA_GetState(handle_->hdmatx) == HAL_DMA_STATE_BUSY) ||
+        (handle_->hdmarx != nullptr && HAL_DMA_GetState(handle_->hdmarx) == HAL_DMA_STATE_BUSY)) {
+        __set_PRIMASK(interrupt_mask);
+        return false;
+    }
+
+    I2C_TypeDef* instance = handle_->Instance;
+    if (instance == I2C1) {
+        __HAL_RCC_I2C1_FORCE_RESET();
+        __HAL_RCC_I2C1_RELEASE_RESET();
+    }
+#if defined(I2C2)
+    else if (instance == I2C2) {
+        __HAL_RCC_I2C2_FORCE_RESET();
+        __HAL_RCC_I2C2_RELEASE_RESET();
+    }
+#endif
+#if defined(I2C3)
+    else if (instance == I2C3) {
+        __HAL_RCC_I2C3_FORCE_RESET();
+        __HAL_RCC_I2C3_RELEASE_RESET();
+    }
+#endif
+    else {
+        __set_PRIMASK(interrupt_mask);
+        return false;
+    }
+
+    handle_->State = HAL_I2C_STATE_BUSY;
+    __HAL_UNLOCK(handle_);
+    HAL_StatusTypeDef status = HAL_I2C_Init(handle_);
+    if (status == HAL_OK) {
+        status = HAL_I2CEx_ConfigAnalogFilter(handle_, I2C_ANALOGFILTER_ENABLE);
+    }
+    if (status == HAL_OK) {
+        status = HAL_I2CEx_ConfigDigitalFilter(handle_, 0U);
+    }
+
+    handle_->XferISR = nullptr;
+    handle_->pBuffPtr = nullptr;
+    handle_->XferCount = 0U;
+    handle_->XferSize = 0U;
+    handle_->ErrorCode = HAL_I2C_ERROR_TIMEOUT;
+    if (status != HAL_OK) {
+        __HAL_I2C_DISABLE(handle_);
+        handle_->State = HAL_I2C_STATE_BUSY;
+    }
+    active_transfer_ = &transfer;
+    __set_PRIMASK(interrupt_mask);
+
+    completeTransfer(status == HAL_OK ? HAL_TIMEOUT : HAL_ERROR, false, status == HAL_OK);
+    return status == HAL_OK;
+}
+
 void I2CBus::masterTxCpltCallback(I2C_HandleTypeDef* hi2c)
 {
     I2CBus* bus = find(hi2c);
