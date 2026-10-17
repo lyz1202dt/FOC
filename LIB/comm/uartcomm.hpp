@@ -26,9 +26,9 @@ public:
     // RX uses at most kFrameMaxSize bytes per completion, even with a larger buffer.
     bool set_dma_address(uint8_t* rx_buffer, std::size_t rx_size, uint8_t* tx_buffer, std::size_t tx_size);
     // Callback runs in IRQ context; received command is valid only during callback.
-    void register_recv_callback(std::function<void(void* data, int size)> callback) override;
+    void register_recv_callback(std::function<void(Command* data)> callback) override;
     // Copies and queues the command; the caller may release its storage on return.
-    bool send_pack(void* data, int size) override;
+    bool send_pack(Command* data) override;
 
 private:
     static uint16_t CalculateCrc(const uint8_t* data, std::size_t size);
@@ -53,7 +53,7 @@ private:
     static constexpr std::size_t kTxDescriptorCount = 8U;
 
     bsp::UartPort& port_;
-    std::function<void(void* data, int size)> recv_callback_;
+    std::function<void(Command* data)> recv_callback_;
     uint8_t* rx_dma_buffer_ = nullptr;
     uint8_t* tx_dma_buffer_ = nullptr;
     uint16_t rx_dma_size_ = 0U;

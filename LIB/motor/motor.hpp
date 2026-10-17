@@ -18,6 +18,8 @@ class Motor{
 public:
     Motor(Flash& flash,CommManager& comm_manager);
 
+    // 仅在首次调用 init() 前装配；组件由调用方持有，生命周期须覆盖 Motor。
+    bool install_driver(Encoder* encoder, MotorDriver* driver);
     bool init();
     bool enable(bool enable);
     bool fast_loop();  //在PWM更新中断中调用
@@ -52,11 +54,12 @@ public:
     };
 
 private:
-    bool on_command(void* data,int size);
+    bool on_command(Command* data);
     bool notify_error(uint8_t error);
     void stop_output();
 
     tools::MemoryPoll memory_poll_;
+    bool init_started_{false};
     QueueHandle_t event_queue_{nullptr};
 
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};

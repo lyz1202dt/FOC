@@ -1,8 +1,5 @@
 #include "motor.hpp"
-#include "as5047p.hpp"
-#include "as5600.hpp"
 #include "comm.hpp"
-#include "drv8301.hpp"
 #include "estimater.hpp"
 #include "flash.hpp"
 #include "foc.hpp"
@@ -24,13 +21,23 @@ bool Motor::enable(bool enable) {
     return enable_motor_;
 }
 
+bool Motor::install_driver(Encoder* encoder, MotorDriver* driver) {
+    if (init_started_ || encoder == nullptr || driver == nullptr) {
+        return false;
+    }
+    encoder_ = encoder;
+    driver_ = driver;
+    return true;
+}
+
 bool Motor::init() {
+    init_started_ = true;
     event_queue_=xQueueCreate(8, sizeof(void*));
 
     for (int i = 0; i < comm_manager_.comm_num(); i++) { // 为所有信道来源注册命令接收回调
         if (!comm_manager_.register_recv_callback(
-                [this](void* data, int size) {
-                    on_command(data, size);
+                [this](Command* data) {
+                    on_command(data);
                 },
                 i)) {
             core_error_=0x21;
@@ -38,22 +45,12 @@ bool Motor::init() {
         }
     }
 
-    driver_ = new DRV8301(
-        flash_, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
-        BSP::drv8301_dc_cal());
-    if (driver_ == nullptr) {                           // Driver类构造失败，进入ERROR状态
+    if (driver_ == nullptr) {                           // 应用未装配有效的驱动器
         core_error_=0x01;
         return false;
     }
 
-    int encoder_type = -1;
-    flash_.read_value("encoder", encoder_type);         // 加载配置指定的Encoder
-    switch (encoder_type) {                             // 根据配置的编码器读取数据
-    case 0: encoder_ = new AS5600(flash_, BSP::sensor_i2c_bus()); break;
-    case 1: encoder_ = new AS5047P(flash_); break;
-    default: encoder_ = nullptr;
-    }
-    if (encoder_ == nullptr) {                          // Encoder类构造失败，进入ERROR状态
+    if (encoder_ == nullptr) {                          // 应用未装配有效的编码器
         core_error_=0x02;
         return false;
     }
@@ -257,7 +254,7 @@ bool Motor::handle_event() {
         bool sent = true;
         for (int channel = 0; channel < comm_manager_.comm_num(); ++channel) {
             if (!comm_manager_.send_pack(
-                    command, static_cast<int>(sizeof(Command) + command->size), channel)) {
+                    command, channel)) {
                 sent = false;
             }
         }
@@ -301,11 +298,15 @@ bool Motor::slow_loop()
 //必须在IRQ上下文调用
 bool Motor::notify_error(uint8_t error){
     Command command{.cmd=0xFF,.size=0};
-    return on_command(&command,sizeof(Command));
+    return on_command(&command);
 }
 
-bool Motor::on_command(void* data,int size) //注意：位于ISR上下文
+bool Motor::on_command(Command* data) //注意：位于ISR上下文
 {
+    if (data == nullptr || data->size > 32U - sizeof(Command)) {
+        return false;
+    }
+    const size_t size = sizeof(Command) + data->size;
     void* cmd_block=memory_poll_.require_blob();
     if(cmd_block==nullptr)  //内存池空间不足，直接退出
         return false;

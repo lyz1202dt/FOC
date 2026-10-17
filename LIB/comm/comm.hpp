@@ -3,6 +3,8 @@
 #include <cstdlib>
 #include <functional>
 
+#include "pack.h"
+
 class Comm {
 public:
     Comm()          = default;
@@ -10,12 +12,11 @@ public:
     virtual bool init() {
         return false;
     }
-    virtual void register_recv_callback(std::function<void(void* data, int size)> callback) {
+    virtual void register_recv_callback(std::function<void(Command* data)> callback) {
         (void)callback;
     }
-    virtual bool send_pack(void* data, int size) {
+    virtual bool send_pack(Command* data) {
         (void)data;
-        (void)size;
         return false;
     };
 };
@@ -45,7 +46,7 @@ public:
     }
 
     bool register_recv_callback(
-        std::function<void(void* data, int size)> callback,
+        std::function<void(Command* data)> callback,
         int channel) {
         if (channel < 0 || channel >= comm_num_ ||
             p_comm_[channel] == nullptr) {
@@ -56,13 +57,13 @@ public:
         return true;
     }
 
-    bool send_pack(void* data, int size, int channel) {
+    bool send_pack(Command* data, int channel) {
         if (channel < 0 || channel >= comm_num_ ||
             p_comm_[channel] == nullptr) {
             return false;
         }
 
-        return p_comm_[channel]->send_pack(data, size);
+        return p_comm_[channel]->send_pack(data);
     }
 
     int comm_num()const {

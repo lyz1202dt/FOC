@@ -26,7 +26,7 @@ UartComm::UartComm(bsp::UartPort& port)
 {
 }
 
-void UartComm::register_recv_callback(std::function<void(void* data, int size)> callback)
+void UartComm::register_recv_callback(std::function<void(Command* data)> callback)
 {
     recv_callback_ = std::move(callback);
 }
@@ -68,18 +68,13 @@ bool UartComm::init()
     return StartReceive();
 }
 
-bool UartComm::send_pack(void* data, int size)
+bool UartComm::send_pack(Command* data)
 {
-    if (!initialized_ || data == nullptr || size < static_cast<int>(sizeof(Command)) ||
-        size > static_cast<int>(kCommandMaxSize)) {
+    if (!initialized_ || data == nullptr || data->size > kMaxPayloadSize) {
         return false;
     }
-    const auto* command = static_cast<const Command*>(data);
-    if (command->size != static_cast<uint32_t>(size - sizeof(Command))) {
-        return false;
-    }
-
-    const std::size_t payload_size = static_cast<std::size_t>(size) - sizeof(Command);
+    const auto* command = data;
+    const std::size_t payload_size = command->size;
     const std::size_t frame_size = kFrameHeadSize + payload_size + kFrameCrcSize;
     const bool from_isr = __get_IPSR() != 0U;
     UBaseType_t interrupt_mask = 0U;
@@ -232,7 +227,7 @@ void UartComm::ProcessReceive(const uint8_t* data, std::size_t size)
                     std::memcpy(command->data, rx_frame_ + kFrameHeadSize, command->size);
                     consumed = frame_size;
                     if (recv_callback_) {
-                        recv_callback_(command_data, static_cast<int>(sizeof(Command) + command->size));
+                        recv_callback_(command);
                     }
                 }
             }
