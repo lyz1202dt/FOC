@@ -350,20 +350,19 @@ bool DRV8301::clear_faults() {
 }
 
 
-bool DRV8301::calibrate_current_offsets(uint32_t samples, uint32_t timeout_ms) {
-    if (samples == 0U) {
-        return false;
-    }
+bool DRV8301::self_check() {
+    constexpr  timeout_ms =20;
+
 
     uint32_t sum_b = 0U;
     uint32_t sum_c = 0U;
     uint32_t count = 0U;
-    const uint32_t start_ms = HAL_GetTick();
+    uint64_t now_time=BSP::get_time_us();
 
     dc_cal_.write(true);
     delay_us(100);
 
-    while (count < samples && (HAL_GetTick() - start_ms) <= timeout_ms) {
+    while (count < timeout_ms && (HAL_GetTick() - 10) <= timeout_ms) {
         uint16_t raw_b = 0U;
         uint16_t raw_c = 0U;
         const uint64_t now = BSP::get_time_us();

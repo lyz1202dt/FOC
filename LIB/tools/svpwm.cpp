@@ -14,14 +14,17 @@ bool SVPWM::init() {
     set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
 
     if (timer_.registerPeriodElapsedCallback([this]() {
-            timer_irq();
-        }) != HAL_OK) {
+            if (timer_update_cb_) {
+                timer_update_cb_();
+            }
+        })
+        != HAL_OK) {
         return false;
     }
 
-    if (channels_[0]->start() != HAL_OK || channels_[0]->startComplementary() != HAL_OK
-        || channels_[1]->start() != HAL_OK || channels_[1]->startComplementary() != HAL_OK
-        || channels_[2]->start() != HAL_OK || channels_[2]->startComplementary() != HAL_OK) {
+    if (channels_[0]->start() != HAL_OK || channels_[0]->startComplementary() != HAL_OK || channels_[1]->start() != HAL_OK
+        || channels_[1]->startComplementary() != HAL_OK || channels_[2]->start() != HAL_OK
+        || channels_[2]->startComplementary() != HAL_OK) {
         return false;
     }
 
@@ -32,25 +35,16 @@ void SVPWM::register_timer_update_cb(TimerUpdateCallback callback) {
     timer_update_cb_ = std::move(callback);
 }
 
-void SVPWM::timer_irq() {
-    if (timer_update_cb_) {
-        timer_update_cb_();
-    }
-}
-
 void SVPWM::enable_output(bool enable) {
-    TIM_TypeDef* timer = timer_.native()->Instance;
+    TIM_TypeDef* timer            = timer_.native()->Instance;
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
 
     // Drive all three main/complementary outputs low when MOE is cleared.
     // Keep the channels and counter enabled for update IRQs and ADC triggers.
-    CLEAR_BIT(timer->CR2, TIM_CR2_OIS1 | TIM_CR2_OIS1N
-                             | TIM_CR2_OIS2 | TIM_CR2_OIS2N
-                             | TIM_CR2_OIS3 | TIM_CR2_OIS3N);
+    CLEAR_BIT(timer->CR2, TIM_CR2_OIS1 | TIM_CR2_OIS1N | TIM_CR2_OIS2 | TIM_CR2_OIS2N | TIM_CR2_OIS3 | TIM_CR2_OIS3N);
     // Disable automatic re-enabling on update events while output is off.
-    MODIFY_REG(timer->BDTR, TIM_BDTR_AOE | TIM_BDTR_MOE,
-               TIM_BDTR_OSSI | (enable ? TIM_BDTR_MOE : 0U));
+    MODIFY_REG(timer->BDTR, TIM_BDTR_AOE | TIM_BDTR_MOE, TIM_BDTR_OSSI | (enable ? TIM_BDTR_MOE : 0U));
 
     __set_PRIMASK(interrupt_mask);
 }

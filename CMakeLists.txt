@@ -59,6 +59,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     Task/app_main.cpp
+    Task/test.cpp
     ${USER_CPP_SOURCES}
     ${USER_HPP_SOURCES}
 )

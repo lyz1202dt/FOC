@@ -17,8 +17,6 @@ public:
     void set_voltage(float dc_bus, float v1, float v2, float v3);
     void enable_output(bool enable);
 
-    void timer_irq();
-
 private:
     bsp::Timer& timer_;
     bsp::PwmChannel* channels_[3];

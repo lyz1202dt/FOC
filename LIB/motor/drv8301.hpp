@@ -53,11 +53,12 @@ public:
     bool get_phrase_current(float& c1, float& c2, float& c3) override;
     bool set_phrase_voltage(float v1, float v2, float v3) override;
 
+    bool self_check() override;
+
     void do_checks();
     FaultType_e get_error();
     bool read_status(StatusRegisters& status);
     bool clear_faults();
-    bool calibrate_current_offsets(uint32_t samples = 32U, uint32_t timeout_ms = 100U);
 
 private:
     enum CtrlMode_e : uint16_t {

@@ -11,6 +11,9 @@ public:
     virtual bool init() {                                              // 驱动器初始化
         return true;
     }
+    virtual bool self_check() {                                              // 驱动器初始化
+        return true;
+    }
     virtual bool is_ready() {                                          // 驱动器进入正常工作状态
         return false;
     }
