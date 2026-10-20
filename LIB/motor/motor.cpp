@@ -18,6 +18,7 @@ Motor::Motor(Flash& flash, CommManager& comm_manager)
 
 bool Motor::enable(bool enable) {
     enable_motor_ = enable;
+    motor_is_ready_=true;
     return enable_motor_;
 }
 

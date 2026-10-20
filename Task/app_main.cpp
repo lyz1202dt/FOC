@@ -45,31 +45,37 @@ extern "C" void app_main(void* param) {
 
     flash.init();
 
+    //根据Flash配置，构造当前要使用的组件
     Encoder* encoder;
     MotorDriver* driver;
+    load_components_from_config(encoder,driver);
+    motor.install_driver(encoder, driver);
 
+    //组织通信接口
+    uart_comm.init();
     comm_manager.register_comm_channel(&uart_comm);     //注册唯一的一个串口交互设备
+
+    //准备与DRV8301的通信
     BSP::drv8301_enable_gate().write(false);
     BSP::drv8301_dc_cal().write(false);
     BSP::ic_spi_cs().write(true);
 
+    //电机初始化
+    motor.init();
+
     //DRV8301启动，电机电流检测校准
     BSP::tim1_svpwm().init();
     BSP::tim1_svpwm().enable_output(false);
-    driver->self_check();
+    driver->self_check();   //完成自检，电流零偏校准(ADC由定时器触发，所以必须在TIM1开启后启动自检)
     BSP::tim1_svpwm().enable_output(true);
-
-    load_components_from_config(encoder,driver);
-
-    //电机启动
-    motor.install_driver(encoder, &driver);
-    motor.init();
-    motor.enable(true);
     
-    //创建块环任务
+    //创建电流块环任务
     BSP::tim1_svpwm().register_timer_update_cb([]() {
         motor.fast_loop();
     });
+
+    motor.enable(true);
+    
     //创建状态更新环路
     xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, NULL, 1, &motor_slow_loop_task_handle);
     //创建事件处理环路

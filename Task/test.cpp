@@ -157,7 +157,7 @@ Drv8301TestResult drv8301_sample_result;
         // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
         BSP::tim1_svpwm().enable_output(false);
         drv8301_sample_result.stage = "CurrentCalibration";
-        if (!driver.calibrate_current_offsets()) {
+        if (!driver.self_check()) {
             drv8301_sample_result.reason = "Current offset calibration failed";
             break;
         }

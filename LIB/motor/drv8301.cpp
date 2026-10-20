@@ -351,7 +351,8 @@ bool DRV8301::clear_faults() {
 
 
 bool DRV8301::self_check() {
-    constexpr  timeout_ms =20;
+    constexpr  int timeout_ms =20;
+    constexpr int samples=30;
 
 
     uint32_t sum_b = 0U;
