@@ -171,6 +171,7 @@ bool DRV8301::init() {
 bool DRV8301::enable_pwm(bool enable) {
     svpwm_.set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
     svpwm_.enable_output(enable);
+    return true;
 }
 
 bool DRV8301::enable_measure(bool enable) {
@@ -193,6 +194,7 @@ bool DRV8301::enable_measure(bool enable) {
         }
         measure_started_ = false;
     }
+    return true;
 }
 
 bool DRV8301::is_ready() {

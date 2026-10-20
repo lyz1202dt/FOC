@@ -139,13 +139,13 @@ Drv8301TestResult drv8301_sample_result;
         }
 
         drv8301_sample_result.stage = "MeasureStart";
-        if (!driver.start_measure()) {
+        if (!driver.enable_measure(true)) {
             drv8301_sample_result.reason = "ADC/TIM1 sampling start failed";
             break;
         }
 
         // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
-        driver.stop_svpwm();
+        driver.enable_pwm(false);
         drv8301_sample_result.stage = "CurrentCalibration";
         if (!driver.self_check()) {
             drv8301_sample_result.reason = "Current offset calibration failed";
@@ -189,8 +189,8 @@ Drv8301TestResult drv8301_sample_result;
         }
 
         if (!drv8301_sample_result.passed) {
-            driver.stop_svpwm();
-            driver.stop_measure();
+            driver.enable_pwm(false);
+            driver.enable_measure(false);
             BSP::drv8301_dc_cal().write(false);
         }
         // 通过：每 500ms 翻转 LED；失败：每 100ms 翻转 LED。
