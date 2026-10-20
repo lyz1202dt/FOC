@@ -27,9 +27,6 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver);
 CommManager comm_manager(2);
 UartComm uart_comm(BSP::uart_comm_port());
 
-//电机类
-Motor motor(flash, comm_manager, BSP::tim1_svpwm());
-
 // float debug_rad;
 extern "C" void app_main(void* param) {
     BSP::time_init();
@@ -39,18 +36,20 @@ extern "C" void app_main(void* param) {
 
     flash.init();
 
+    Motor* motor=new Motor(flash, comm_manager, BSP::tim1_svpwm());
+
     //根据Flash配置，构造当前要使用的组件
     Encoder* encoder;
     MotorDriver* driver;
     load_components_from_config(encoder,driver);
-    motor.install_driver(encoder, driver);
+    motor->install_driver(encoder, driver);
 
     //组织通信接口
     uart_comm.init();
     comm_manager.register_comm_channel(&uart_comm);     //注册唯一的一个串口交互设备
 
     //电机初始化
-    if (!motor.init()) {
+    if (!motor->init()) {
         // 初始化失败时保持输出关闭，不启动控制与事件处理环路。
         while(1)
         {
@@ -62,16 +61,17 @@ extern "C" void app_main(void* param) {
     // 初始化完成后保持待机，等待显式使能命令。
     
     //创建状态更新环路
-    xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, NULL, 1, &motor_slow_loop_task_handle);
+    xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, motor, 1, &motor_slow_loop_task_handle);
     //创建事件处理环路
     while (1) {
-        motor.handle_event(); // 阻塞等待并处理电机事件
+        motor->handle_event(); // 阻塞等待并处理电机事件
     }
 }
 
 void motor_slow_loop(void* param) {
+    Motor* motor=static_cast<Motor*>(param);
     while (1) {
-        motor.slow_loop();
+        motor->slow_loop();
         vTaskDelay(pdMS_TO_TICKS(50));
     }
 }

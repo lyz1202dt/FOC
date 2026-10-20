@@ -29,9 +29,8 @@ typedef struct{
 
 typedef struct{
     float position;
-    int32_t r;
     float velocity;
-    float torque;
+    float current;
     uint32_t status;
 }MotorStatus;
 

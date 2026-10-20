@@ -11,11 +11,13 @@ public:
         const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) override;
     bool get_output(float& v1, float& v2, float& v3) override;
     void controller_reference(void* ref,size_t size) override;
+    void controller_status(void* ref,size_t size) override;
 
     int n;
     float offset;
 private:
     float exp_iq_{0.0f};
+    float cur_iq_{0.0f};
     
     PID iq_pid,id_pid;
     float c1,c2,c3,vbus,rad{0.0};

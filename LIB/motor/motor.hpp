@@ -72,6 +72,7 @@ private:
     Controller* controllers_[ControllerType::CONTROLLER_NUM]{};
     //当前状态
     State state{State::IDEL};
+    State next_state{State::IDEL};
     //code
     uint8_t core_error_{0};
 };

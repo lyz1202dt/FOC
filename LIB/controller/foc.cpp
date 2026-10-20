@@ -27,6 +27,9 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
     float id=c*ix-s*iy;
     float iq=s*ix+c*iy;
 
+    //记录
+    cur_iq_=iq;
+
     float vq=iq_pid.update(iq,exp_iq_);
     float vd=id_pid.update(id,0.0f);
     
@@ -43,4 +46,9 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
 
 void FOC::controller_reference(void* ref,size_t size) {
     exp_iq_=*static_cast<float*>(ref);              //在FOC模式下，将ref视作q轴电流参考值
+}
+
+void FOC::controller_status(void* ref,size_t size){
+    if(size==sizeof(float))
+        *static_cast<float*>(ref)=cur_iq_;
 }

@@ -15,6 +15,7 @@ public:
         return true;
     };
     virtual void controller_reference(void* ref,size_t size){};
+    virtual void controller_status(void* ref,size_t size){};
 
     uint32_t error_;
     protected:

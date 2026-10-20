@@ -166,7 +166,9 @@ bool Motor::fast_loop() {
     }
 
     float estimatered_rad = 0.0f;
-    bool success          = estimater_->update(estimatered_rad);
+    float estimatered_omega = 0.0f;
+    bool success = estimater_->update();
+    success = estimater_->get_value(estimatered_rad, estimatered_omega) && success;
     if (!sensorless_mode_) { // 有感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
         if (!success) {
             stop_output();
@@ -198,7 +200,10 @@ bool Motor::fast_loop() {
         estimater_ = next_estimater_;
     if (next_controller_ && (next_controller_ != controller_))
         controller_ = next_controller_;
-
+    if(next_state!=state)
+    {
+        state=next_state;
+    }
     return true;
 }
 
@@ -218,20 +223,20 @@ bool Motor::handle_event() {
         enable(command->data[0] ? true : false);
     } else if (cmd == 0x02)   // 请求切入IDEL模式
     {
-        state            = State::IDEL;
+        next_state            = State::IDEL;
         next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
     } else if (cmd == 0x03)   // 请求切入开环测试
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            state            = State::TEST;
+            next_state            = State::TEST;
             next_controller_ = controllers_[ControllerType::CONTROLLER_TEST];
         }
     } else if (cmd == 0x04)   // 请求切入FOC闭环
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            state            = State::FOC;
+            next_state            = State::FOC;
             next_controller_ = controllers_[ControllerType::CONTROLLER_FOC];
         }
     } else if (cmd == 0x05)   // 设置FOC参考力矩电流
@@ -239,8 +244,15 @@ bool Motor::handle_event() {
         controllers_[ControllerType::CONTROLLER_FOC]->controller_reference(command->data, sizeof(float));
     } else if (cmd == 0x06)   // 请求获取电机状态
     {
-        // TODO:触发复位重启（还需要增加一些关断驱动器的代码）
-        // NVIC_SystemReset();
+        uint8_t send_buffer[sizeof(Command)+sizeof(MotorStatus)]
+        Command* pack=(Command*)send_buffer;
+        pack->cmd=0x16;
+        pack->size=sizeof(MotorStatus);
+        MotorStatus* payload=(MotorStatus*)pack->data;
+        controllers_[ControllerType::CONTROLLER_FOC]->controller_status(&(payload->current), sizeof(float));
+        estimater_->get_value(payload->position, payload->velocity);
+        payload->status=0;  //TODO:填写状态/错误码
+        comm_manager_.send_pack(pack, 0);   //默认反馈到0通道
     } else if (cmd == 0x07) // 设置参数值(存储的格式为:size(uint8_t)|c_str|data)
     {
         constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);
