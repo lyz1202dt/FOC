@@ -1,7 +1,5 @@
 #include "as5047p.hpp"
 
-#include "hardware.hpp"
-
 namespace {
 
 // Read bit plus register address, with even parity across all 16 bits.
@@ -15,23 +13,25 @@ static_assert(std::atomic<bool>::is_always_lock_free);
 
 }  // namespace
 
-AS5047P::AS5047P(Flash& flash) : Encoder(flash) {
+AS5047P::AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs)
+    : Encoder(flash), bus_(bus), cs_(cs) {
     transfer_.mode = bsp::SpiTransferMode::Interrupt;
     transfer_.tx_data = &tx_word_;
     transfer_.rx_data = &rx_word_;
     transfer_.size = 1U;
     transfer_.context = this;
     // SPI hardware configuration comes from CubeMX; transfers leave it unchanged.
-    transfer_.before_cb = [](bsp::SpiTransferEvent&) {
-        BSP::sensor_spi_cs().write(false);
+    transfer_.before_cb = [](bsp::SpiTransferEvent& event) {
+        auto* self = static_cast<AS5047P*>(event.context);
+        self->cs_.write(false);
         // tL >= 350 ns, even at the STM32G431 maximum clock of 170 MHz.
         __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
     };
     transfer_.after_cb = [](bsp::SpiTransferEvent& event) {
-        BSP::sensor_spi_cs().write(true);
+        auto* self = static_cast<AS5047P*>(event.context);
+        self->cs_.write(true);
         // tCSn >= 350 ns before another caller may submit the next frame.
         __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
-        auto* self = static_cast<AS5047P*>(event.context);
         if (event.status == bsp::SpiTransferStatus::Ok) {
             uint16_t parity = self->rx_word_;
             parity ^= static_cast<uint16_t>(parity >> 8);
@@ -67,12 +67,11 @@ bool AS5047P::init() {
     if (initialized_.load(std::memory_order_acquire)) {
         return true;
     }
-    auto& bus = BSP::sensor_spi_bus();
-    if (!bus.valid()) {
+    if (!bus_.valid()) {
         return false;
     }
 
-    BSP::sensor_spi_cs().write(true);
+    cs_.write(true);
     initialized_.store(true, std::memory_order_release);
     return true;
 }
@@ -88,7 +87,7 @@ float AS5047P::get_value() {
     }
 
     tx_word_ = next_command_;
-    if (!BSP::sensor_spi_bus().transfer(transfer_)) {
+    if (!bus_.transfer(transfer_)) {
         // Queue rejection sends no frame, so keep the existing pipeline state.
         read_pending_.store(false, std::memory_order_release);
     }

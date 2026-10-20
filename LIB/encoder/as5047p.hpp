@@ -1,6 +1,7 @@
 #pragma once
 
 #include "encoder.hpp"
+#include "gpio.hpp"
 #include "spi.hpp"
 
 #include <atomic>
@@ -8,7 +9,8 @@
 
 class AS5047P : public Encoder {
 public:
-    explicit AS5047P(Flash &flash);
+    // Bus and CS must outlive the encoder and all queued transfers.
+    AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs);
     // Call once from a task with the sensor SPI bus initialized and idle.
     // The encoder and its buffers must outlive all queued transfers.
     bool init() override;
@@ -18,6 +20,8 @@ public:
 private:
     enum class Response : uint8_t { None, Angle, ErrorFlags };
 
+    BSP::SPIBus& bus_;
+    BSP::Gpio& cs_;
     bsp::SpiTransferEvent transfer_{};
     uint16_t tx_word_{0U};
     uint16_t rx_word_{0U};

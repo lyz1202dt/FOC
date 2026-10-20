@@ -20,9 +20,9 @@ bool VOC::get_output(float& v1, float& v2, float& v3){
         vir_ecc_rad=0.0f;
     
     float s,c;
-    arm_sin_cos_f32(vir_ecc_rad,&s,&c);
+    s=arm_sin_f32(-vir_ecc_rad);
+    c=arm_cos_f32(-vir_ecc_rad);
 
-    s=-s;   //得到逆矩阵，用于将电压转回静止坐标系
     float vx=c*vd-s*vq;
     float vy=s*vd+c*vq;
 

@@ -20,7 +20,7 @@ public:
     virtual bool is_available() const {
         return is_available_;
     }
-
+    uint32_t error_;
 protected:
     Flash &flash;
     float measured_rad_{0.0f};

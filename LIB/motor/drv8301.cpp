@@ -111,6 +111,8 @@ bool DRV8301::init() {
     svpwm_.set_voltage(24.0f, 0.0f,0.0f,0.0f);
     dc_cal_.write(false);
     enable_gate_.write(false);
+    // 上电及寄存器通信前保持校准关闭、片选空闲。
+    BSP::ic_spi_cs().write(true);
 
     delay_us(40); // DRV8301 reset low time is only tens of us.
     enable_gate_.write(true);
@@ -351,19 +353,19 @@ bool DRV8301::clear_faults() {
 
 
 bool DRV8301::self_check() {
-    constexpr  int timeout_ms =20;
+    constexpr uint64_t kTimeoutUs = 20000U;
     constexpr int samples=30;
 
 
     uint32_t sum_b = 0U;
     uint32_t sum_c = 0U;
     uint32_t count = 0U;
-    uint64_t now_time=BSP::get_time_us();
+    const uint64_t start_us = BSP::get_time_us();
 
     dc_cal_.write(true);
     delay_us(100);
 
-    while (count < timeout_ms && (HAL_GetTick() - 10) <= timeout_ms) {
+    while (count < samples && BSP::get_time_us() - start_us < kTimeoutUs) {
         uint16_t raw_b = 0U;
         uint16_t raw_c = 0U;
         const uint64_t now = BSP::get_time_us();

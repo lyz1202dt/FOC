@@ -10,15 +10,18 @@
 #include "voc.hpp"
 #include <cstring>
 
-Motor::Motor(Flash& flash, CommManager& comm_manager)
+Motor::Motor(Flash& flash, CommManager& comm_manager, BSP::SVPWM& svpwm)
     : flash_(flash)
     , comm_manager_(comm_manager)
+    , svpwm_(svpwm)
     , memory_poll_(32,6) {
 }
 
 bool Motor::enable(bool enable) {
-    enable_motor_ = enable;
-    motor_is_ready_=true;
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    enable_motor_ = enable && motor_is_ready_ && core_error_ == 0U;
+    __set_PRIMASK(interrupt_mask);
     return enable_motor_;
 }
 
@@ -32,8 +35,15 @@ bool Motor::install_driver(Encoder* encoder, MotorDriver* driver) {
 }
 
 bool Motor::init() {
+    if (init_started_) {
+        return motor_is_ready_ && core_error_ == 0U;
+    }
     init_started_ = true;
     event_queue_=xQueueCreate(8, sizeof(void*));
+    if (event_queue_ == nullptr) {
+        core_error_=0x09;
+        return false;
+    }
 
     for (int i = 0; i < comm_manager_.comm_num(); i++) { // 为所有信道来源注册命令接收回调
         if (!comm_manager_.register_recv_callback(
@@ -46,12 +56,12 @@ bool Motor::init() {
         }
     }
 
-    if (driver_ == nullptr) {                           // 应用未装配有效的驱动器
+    if (driver_ == nullptr) {                           // 未装配有效的驱动器
         core_error_=0x01;
         return false;
     }
 
-    if (encoder_ == nullptr) {                          // 应用未装配有效的编码器
+    if (encoder_ == nullptr) {                          // 未装配有效的编码器
         core_error_=0x02;
         return false;
     }
@@ -102,6 +112,23 @@ bool Motor::init() {
         return false;
     }
 
+    // 定时器运行后 ADC 才能获得校准样本，校准期间保持功率输出关闭。
+    // 在启动中断前装配回调，避免在线修改正在执行的 std::function。
+    svpwm_.register_timer_update_cb([this]() { fast_loop(); });
+    if (!svpwm_.init()) {
+        svpwm_.enable_output(false);
+        driver_->set_enable(false);
+        core_error_=0x0A;
+        return false;
+    }
+    svpwm_.enable_output(false);
+    if (!driver_->self_check()) {
+        driver_->set_enable(false);
+        core_error_=0x0B;
+        return false;
+    }
+    svpwm_.enable_output(true);
+    motor_is_ready_ = true;
     return true;
 }
 

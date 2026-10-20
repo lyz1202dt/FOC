@@ -22,7 +22,8 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
 
     float erad=(rad*n-offset);
     float s,c;
-    arm_sin_cos_f32(erad,&s,&c);   //将三相电流变为正交坐标系下的电流
+    s=arm_sin_f32(-erad);
+    c=arm_cos_f32(-erad);
     float id=c*ix-s*iy;
     float iq=s*ix+c*iy;
 

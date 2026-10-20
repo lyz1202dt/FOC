@@ -1,4 +1,5 @@
 #include "as5600.hpp"
+#include "hardware.hpp"
 
 namespace {
 
@@ -9,7 +10,7 @@ constexpr uint8_t kMagnetTooWeak = 1U << 4;
 constexpr uint8_t kMagnetTooStrong = 1U << 3;
 constexpr uint8_t kStatusValid = 1U << 7;
 constexpr float kRadiansPerCount = 2.0f * 3.14159265358979323846f / 4096.0f;
-constexpr uint32_t kReadTimeoutMs = 10U;
+constexpr uint32_t kReadTimeoutUs = 10000U;
 
 static_assert(std::atomic<bool>::is_always_lock_free);
 static_assert(std::atomic<uint8_t>::is_always_lock_free);
@@ -90,8 +91,10 @@ float AS5600::get_value() {
     // Serialize the deadline check with the completion ISR and recovery task.
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
+    // 仅保留低 32 位，短超时通过无符号差值处理回绕，保持原子访问无锁。
+    const uint32_t now_us = static_cast<uint32_t>(BSP::get_time_us());
     if (read_pending_.load(std::memory_order_acquire) &&
-        HAL_GetTick() - read_started_ms_.load(std::memory_order_relaxed) >= kReadTimeoutMs) {
+        now_us - read_started_us_.load(std::memory_order_relaxed) >= kReadTimeoutUs) {
         recovery_pending_.store(true, std::memory_order_release);
     }
     const bool recover = recovery_pending_.load(std::memory_order_acquire);
@@ -99,7 +102,7 @@ float AS5600::get_value() {
     const bool start_read = !recover && read_pending_.compare_exchange_strong(
         expected, true, std::memory_order_acq_rel);
     if (start_read) {
-        read_started_ms_.store(HAL_GetTick(), std::memory_order_relaxed);
+        read_started_us_.store(now_us, std::memory_order_relaxed);
     }
     __set_PRIMASK(interrupt_mask);
     if (recover) {

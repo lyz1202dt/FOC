@@ -26,7 +26,7 @@ As5047pTestResult as5047p_sample_result;
     test_flash.init();
 
     // AS5047P 独立采样测试：不启动电机控制环，默认使用 SPI IT 模式。
-    static AS5047P test_encoder(test_flash);
+    static AS5047P test_encoder(test_flash, BSP::sensor_spi_bus(), BSP::sensor_spi_cs());
     BSP::sensor_spi_cs().write(true);
     as5047p_sample_result.spi_ready = BSP::sensor_spi_bus().init();
     if (as5047p_sample_result.spi_ready) {
@@ -123,10 +123,6 @@ Drv8301TestResult drv8301_sample_result;
     static DRV8301 driver(
         test_flash, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
         BSP::drv8301_dc_cal());
-    BSP::drv8301_enable_gate().write(false);
-    BSP::drv8301_dc_cal().write(false);
-    BSP::ic_spi_cs().write(true);
-
     do {
         drv8301_sample_result.stage = "SpiInit";
         if (!BSP::ic_spi_bus().init()) {

@@ -12,15 +12,17 @@
 #include <functional>
 #include "comm.hpp"
 #include "memorypoll.hpp"
+#include "svpwm.hpp"
 
 
 class Motor{
 public:
-    Motor(Flash& flash,CommManager& comm_manager);
+    // 注入组件由调用方持有，生命周期须覆盖 Motor 及其定时器回调。
+    Motor(Flash& flash, CommManager& comm_manager, BSP::SVPWM& svpwm);
 
     // 仅在首次调用 init() 前装配；组件由调用方持有，生命周期须覆盖 Motor。
     bool install_driver(Encoder* encoder, MotorDriver* driver);
-    bool init();
+    bool init();  // 在线程上下文调用；启动 PWM 时基、校准驱动器并注册快环。
     bool enable(bool enable);
     bool fast_loop();  //在PWM更新中断中调用
     bool slow_loop();   //慢循环，维护状态更新，心跳保活包等
@@ -58,6 +60,7 @@ private:
     bool notify_error(uint8_t error);
     void stop_output();
 
+    BSP::SVPWM& svpwm_;
     tools::MemoryPoll memory_poll_;
     bool init_started_{false};
     QueueHandle_t event_queue_{nullptr};

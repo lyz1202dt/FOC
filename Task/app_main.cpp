@@ -31,9 +31,10 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver);
 
 // 组装电机控制器
 CommManager comm_manager(2);
-Motor motor(flash, comm_manager);
-
 UartComm uart_comm(BSP::uart_comm_port());
+
+//电机类
+Motor motor(flash, comm_manager, BSP::tim1_svpwm());
 
 // float debug_rad;
 extern "C" void app_main(void* param) {
@@ -55,24 +56,15 @@ extern "C" void app_main(void* param) {
     uart_comm.init();
     comm_manager.register_comm_channel(&uart_comm);     //注册唯一的一个串口交互设备
 
-    //准备与DRV8301的通信
-    BSP::drv8301_enable_gate().write(false);
-    BSP::drv8301_dc_cal().write(false);
-    BSP::ic_spi_cs().write(true);
-
     //电机初始化
-    motor.init();
-
-    //DRV8301启动，电机电流检测校准
-    BSP::tim1_svpwm().init();
-    BSP::tim1_svpwm().enable_output(false);
-    driver->self_check();   //完成自检，电流零偏校准(ADC由定时器触发，所以必须在TIM1开启后启动自检)
-    BSP::tim1_svpwm().enable_output(true);
-    
-    //创建电流块环任务
-    BSP::tim1_svpwm().register_timer_update_cb([]() {
-        motor.fast_loop();
-    });
+    if (!motor.init()) {
+        // 初始化失败时保持输出关闭，不启动控制与事件处理环路。
+        while(1)
+        {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+        return;
+    }
 
     motor.enable(true);
     
@@ -97,7 +89,7 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     flash.read_value("encoder", encoder_type);
     switch (encoder_type) {
     case 0: encoder = new AS5600(flash, BSP::sensor_i2c_bus()); break;
-    case 1: encoder = new AS5047P(flash); break;
+    case 1: encoder = new AS5047P(flash, BSP::sensor_spi_bus(), BSP::sensor_spi_cs()); break;
     default: encoder = nullptr; break;
     }
 

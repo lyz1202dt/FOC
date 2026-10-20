@@ -16,6 +16,7 @@ public:
     };
     virtual void controller_reference(void* ref,size_t size){};
 
+    uint32_t error_;
     protected:
     Flash& flash;
 };

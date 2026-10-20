@@ -29,7 +29,7 @@ private:
     uint8_t recv_buffer_[5]{};
     std::atomic<bool> read_pending_{false};
     std::atomic<uint8_t> status_{0U};
-    std::atomic<uint32_t> read_started_ms_{0U};
+    std::atomic<uint32_t> read_started_us_{0U};
     std::atomic<bool> recovery_pending_{false};
     TaskHandle_t recovery_task_ = nullptr;
 };

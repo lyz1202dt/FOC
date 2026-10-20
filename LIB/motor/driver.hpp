@@ -35,6 +35,7 @@ public:
     virtual bool set_phrase_voltage(float v1, float v2, float v3) {    // 输出生成相电压
         return false;
     }
+    uint32_t error_;
 protected:
     Flash &flash;
 };
