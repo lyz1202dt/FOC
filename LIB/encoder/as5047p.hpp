@@ -9,12 +9,8 @@
 
 class AS5047P : public Encoder {
 public:
-    // Bus and CS must outlive the encoder and all queued transfers.
     AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs);
-    // Call once from a task with the sensor SPI bus initialized and idle.
-    // The encoder and its buffers must outlive all queued transfers.
     bool init() override;
-    // Return the cached radians, then request one nonblocking SPI frame.
     float get_value() override;
 
 private:

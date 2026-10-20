@@ -17,9 +17,12 @@ public:
     virtual bool is_ready() {                                          // 驱动器进入正常工作状态
         return false;
     }
-    virtual bool set_enable(bool enable = true) {                      // 开关驱动器功能
-        return true;
-    }
+    virtual bool enable_pwm(bool enable){
+        return false;
+    };
+    virtual bool enable_measure(bool enable){
+        return false;
+    };
 
     virtual int lookup_reason(std::string& reason) {                   // 查询错误原因并上报
         reason = "Not Set";

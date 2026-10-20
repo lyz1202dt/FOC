@@ -105,6 +105,15 @@ bool adc_measure_start()
     }) == HAL_OK;
 }
 
+bool adc_measure_stop()
+{
+    if (bsp::hardware::adc1.injectedStopIt() != HAL_OK) {
+        return false;
+    }
+    g_adc_measure.reset();
+    return true;
+}
+
 Gpio& ic_spi_cs()
 {
     return bsp::hardware::ic_spi_cs;

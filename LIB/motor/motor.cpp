@@ -20,9 +20,19 @@ Motor::Motor(Flash& flash, CommManager& comm_manager, BSP::SVPWM& svpwm)
 bool Motor::enable(bool enable) {
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
-    enable_motor_ = enable && motor_is_ready_ && core_error_ == 0U;
+    enable_motor_ = false;
+    bool success = false;
+    if (driver_ != nullptr) {
+        if (enable && motor_is_ready_ && core_error_ == 0U) {
+            last_voltage_[0] = last_voltage_[1] = last_voltage_[2] = 0.0f;
+            enable_motor_ = driver_->start_svpwm();
+            success = enable_motor_;
+        } else {
+            success = driver_->stop_svpwm() && !enable;
+        }
+    }
     __set_PRIMASK(interrupt_mask);
-    return enable_motor_;
+    return success;
 }
 
 bool Motor::install_driver(Encoder* encoder, MotorDriver* driver) {
@@ -103,31 +113,21 @@ bool Motor::init() {
         core_error_=0x06;
         return false;
     }
-    if (!driver_->set_enable(true)) {
-        core_error_=0x07;
-        return false;
-    }
     if (!driver_->is_ready()) {
         core_error_=0x08;
         return false;
     }
-
-    // 定时器运行后 ADC 才能获得校准样本，校准期间保持功率输出关闭。
-    // 在启动中断前装配回调，避免在线修改正在执行的 std::function。
+    
     svpwm_.register_timer_update_cb([this]() { fast_loop(); });
-    if (!svpwm_.init()) {
-        svpwm_.enable_output(false);
-        driver_->set_enable(false);
-        core_error_=0x0A;
+    if (!driver_->enable_measure(true)) {   //开始ADC测量
+        core_error_=0x07;
         return false;
     }
-    svpwm_.enable_output(false);
-    if (!driver_->self_check()) {
-        driver_->set_enable(false);
+    if (!driver_->self_check()) {   //自检，校准电流
         core_error_=0x0B;
         return false;
     }
-    svpwm_.enable_output(true);
+    svpwm_.enable_timer(true);  //启动定时器
     motor_is_ready_ = true;
     return true;
 }
@@ -159,7 +159,6 @@ bool Motor::fast_loop() {
     }
 
     // 估计器输入
-    estimater_->set_raw_rad(encoder_->get_value(), encoder_->value_is_available(2000));
     if (sensorless_mode_) {  // 无感模式还要输入电压和电流
         estimater_->set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);
         estimater_->set_raw_cur(current[0], current[1], current[2]);
@@ -217,11 +216,15 @@ bool Motor::handle_event() {
     }
     else if(cmd==0x03)  //请求切入开环测试
     {
+        if(core_error_!=0)  //无错误允许切换
+            return true;
         state=State::TEST;
         next_controller_ = controllers_[ControllerType::CONTROLLER_TEST];
     }
     else if(cmd==0x04)  //请求切入FOC闭环
     {
+        if(core_error_!=0)  //无错误允许切换
+            return true;
         state=State::FOC;
         next_controller_ = controllers_[ControllerType::CONTROLLER_FOC];
     }
@@ -310,6 +313,7 @@ bool Motor::handle_event() {
     return true;
 }
 
+//LED指示，按键扫描
 bool Motor::slow_loop()
 {
     if(state==State::ERROR)
@@ -319,6 +323,14 @@ bool Motor::slow_loop()
     else if(state==FOC)
     {
         //TODO:指示FOC正常运转
+    }
+    else if(state==State::IDEL)
+    {
+        //TODO:IDEL状态
+    }
+    else if(state==TEST)
+    {
+        //TODO:电压开环测试状态
     }
     return true;
 }
@@ -340,7 +352,7 @@ bool Motor::on_command(Command* data) //注意：位于ISR上下文
         return false;
     memcpy(cmd_block,data,size);
     BaseType_t pxHigherPriorityTaskWoken=pdFALSE;
-    xQueueSendFromISR(event_queue_, cmd_block, &pxHigherPriorityTaskWoken);
+    xQueueSendFromISR(event_queue_, &cmd_block, &pxHigherPriorityTaskWoken);
     portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
     return true;
 }

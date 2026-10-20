@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <string>
 
@@ -43,10 +44,11 @@ public:
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
     bool config(float requested_gain, float* actual_gain = nullptr);
-    // 配置并使能驱动器，不依赖 PWM/ADC；启动采样后须显式校准电流零点。
+    // 配置芯片和 PWM 外设，保持功率输出关闭；不启动测量。
     bool init() override;
+    bool enable_pwm(bool enable) override;
+    bool enable_measure(bool enable) override;
     bool is_ready() override;
-    bool set_enable(bool enable = true) override;
     int lookup_reason(std::string& reason) override;
 
     bool get_vbus_voltage(float& vol) override;
@@ -55,7 +57,6 @@ public:
 
     bool self_check() override;
 
-    void do_checks();
     FaultType_e get_error();
     bool read_status(StatusRegisters& status);
     bool clear_faults();
@@ -104,5 +105,6 @@ private:
     uint32_t last_fault_{FaultType_NoFault};
     uint8_t tx_buf_[2]{};
     uint8_t rx_buf_[2]{};
-    bool enabled_{false};
+    bool measure_started_{false};
+    std::atomic<bool> current_calibrated_{false};
 };

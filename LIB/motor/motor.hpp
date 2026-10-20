@@ -22,8 +22,8 @@ public:
 
     // 仅在首次调用 init() 前装配；组件由调用方持有，生命周期须覆盖 Motor。
     bool install_driver(Encoder* encoder, MotorDriver* driver);
-    bool init();  // 在线程上下文调用；启动 PWM 时基、校准驱动器并注册快环。
-    bool enable(bool enable);
+    bool init();  // 在线程上下文准备采样与校准，完成后保持功率输出关闭。
+    bool enable(bool enable);  //是否开启功率输出
     bool fast_loop();  //在PWM更新中断中调用
     bool slow_loop();   //慢循环，维护状态更新，心跳保活包等
     bool handle_event();    //处理事件（在线程上下文执行）
@@ -71,7 +71,7 @@ private:
     //Controllers
     Controller* controllers_[ControllerType::CONTROLLER_NUM]{};
     //当前状态
-    State state;
+    State state{State::IDEL};
     //code
     uint8_t core_error_{0};
 };

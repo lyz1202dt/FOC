@@ -130,13 +130,7 @@ Drv8301TestResult drv8301_sample_result;
             break;
         }
 
-        // 先使 ADC 等待外部触发，驱动器配置完成后再启动 TIM1 TRGO。
-        drv8301_sample_result.stage = "AdcStart";
-        if (!BSP::adc_measure_start()) {
-            drv8301_sample_result.reason = "ADC injected sampling start failed";
-            break;
-        }
-        // init() 仅执行 EN_GATE 上电、配置寄存器写入/回读及故障检查。
+        // init() 配置芯片和 PWM 外设，保持功率输出关闭。
         drv8301_sample_result.stage = "DriverInit";
         if (!driver.init()) {
             driver.lookup_reason(drv8301_sample_result.reason);
@@ -144,14 +138,14 @@ Drv8301TestResult drv8301_sample_result;
             break;
         }
 
-        drv8301_sample_result.stage = "PwmInit";
-        if (!BSP::tim1_svpwm().init()) {
-            drv8301_sample_result.reason = "TIM1 PWM initialization failed";
+        drv8301_sample_result.stage = "MeasureStart";
+        if (!driver.start_measure()) {
+            drv8301_sample_result.reason = "ADC/TIM1 sampling start failed";
             break;
         }
 
         // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
-        BSP::tim1_svpwm().enable_output(false);
+        driver.stop_svpwm();
         drv8301_sample_result.stage = "CurrentCalibration";
         if (!driver.self_check()) {
             drv8301_sample_result.reason = "Current offset calibration failed";
@@ -195,7 +189,8 @@ Drv8301TestResult drv8301_sample_result;
         }
 
         if (!drv8301_sample_result.passed) {
-            driver.set_enable(false);
+            driver.stop_svpwm();
+            driver.stop_measure();
             BSP::drv8301_dc_cal().write(false);
         }
         // 通过：每 500ms 翻转 LED；失败：每 100ms 翻转 LED。

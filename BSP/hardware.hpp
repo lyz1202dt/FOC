@@ -44,6 +44,7 @@ FdcanBus& fdcan1_bus();
 SVPWM& tim1_svpwm();
 Measure& adc_measure();
 bool adc_measure_start();
+bool adc_measure_stop();
 Gpio& ic_spi_cs();
 Gpio& sensor_spi_cs();
 Gpio& drv8301_enable_gate();

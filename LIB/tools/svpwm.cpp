@@ -11,7 +11,9 @@ SVPWM::SVPWM(bsp::Timer& timer, bsp::PwmChannel& channel_1, bsp::PwmChannel& cha
 }
 
 bool SVPWM::init() {
-    set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
+    if (initialized_) {
+        return true;
+    }
 
     if (timer_.registerPeriodElapsedCallback([this]() {
             if (timer_update_cb_) {
@@ -22,17 +24,38 @@ bool SVPWM::init() {
         return false;
     }
 
-    if (channels_[0]->start() != HAL_OK || channels_[0]->startComplementary() != HAL_OK || channels_[1]->start() != HAL_OK
-        || channels_[1]->startComplementary() != HAL_OK || channels_[2]->start() != HAL_OK
-        || channels_[2]->startComplementary() != HAL_OK) {
-        return false;
-    }
+    set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
 
-    return timer_.startIt() == HAL_OK;
+    // 仅配置输出关闭时的低电平状态，禁止更新事件自动打开 MOE。
+    TIM_TypeDef* timer = timer_.native()->Instance;
+    CLEAR_BIT(timer->CR2, TIM_CR2_OIS1 | TIM_CR2_OIS1N | TIM_CR2_OIS2 | TIM_CR2_OIS2N | TIM_CR2_OIS3 | TIM_CR2_OIS3N);
+    MODIFY_REG(timer->BDTR, TIM_BDTR_AOE | TIM_BDTR_MOE | TIM_BDTR_OSSI, TIM_BDTR_OSSI);
+    initialized_ = true;
+    return true;
 }
 
 void SVPWM::register_timer_update_cb(TimerUpdateCallback callback) {
     timer_update_cb_ = std::move(callback);
+}
+
+void SVPWM::enable_timer(bool enable) {
+    TIM_TypeDef* timer            = timer_.native()->Instance;
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+
+    if (enable) {
+        if ((timer->CR1 & TIM_CR1_CEN) == 0U) {
+            __HAL_TIM_CLEAR_FLAG(timer_.native(), TIM_FLAG_UPDATE);
+        }
+        SET_BIT(timer->DIER, TIM_DIER_UIE);
+        SET_BIT(timer->CR1, TIM_CR1_CEN);
+    } else {
+        CLEAR_BIT(timer->DIER, TIM_DIER_UIE);
+        // HAL 的停止接口在 PWM 通道使能时不会清除 CEN，此处独立控制计数器。
+        CLEAR_BIT(timer->CR1, TIM_CR1_CEN);
+    }
+
+    __set_PRIMASK(interrupt_mask);
 }
 
 void SVPWM::enable_output(bool enable) {
@@ -40,11 +63,16 @@ void SVPWM::enable_output(bool enable) {
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
 
-    // Drive all three main/complementary outputs low when MOE is cleared.
-    // Keep the channels and counter enabled for update IRQs and ADC triggers.
-    CLEAR_BIT(timer->CR2, TIM_CR2_OIS1 | TIM_CR2_OIS1N | TIM_CR2_OIS2 | TIM_CR2_OIS2N | TIM_CR2_OIS3 | TIM_CR2_OIS3N);
-    // Disable automatic re-enabling on update events while output is off.
-    MODIFY_REG(timer->BDTR, TIM_BDTR_AOE | TIM_BDTR_MOE, TIM_BDTR_OSSI | (enable ? TIM_BDTR_MOE : 0U));
+    if (enable) {
+        // 直接使能通道和 MOE，避免 HAL PWM 启动接口同时启动计数器。
+        SET_BIT(timer->CCER, TIM_CCER_CC1E | TIM_CCER_CC1NE |
+                             TIM_CCER_CC2E | TIM_CCER_CC2NE |
+                             TIM_CCER_CC3E | TIM_CCER_CC3NE);
+        SET_BIT(timer->BDTR, TIM_BDTR_MOE);
+    } else {
+        // 保留通道使能，由 OSSI/OIS 将输出保持为低电平；采样时基继续运行。
+        CLEAR_BIT(timer->BDTR, TIM_BDTR_MOE);
+    }
 
     __set_PRIMASK(interrupt_mask);
 }

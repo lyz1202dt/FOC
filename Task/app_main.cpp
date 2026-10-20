@@ -5,22 +5,16 @@
 #include "driver.hpp"
 #include "drv8301.hpp"
 #include "encoder.hpp"
-#include "estimater.hpp"
 #include "hardware.hpp"
 #include "i2c.hpp"
-#include "pack.h"
 #include "projdefs.h"
 #include "spi.hpp"
-#include "svpwm.hpp"
 
 
 #include "comm.hpp"
 #include "flash.hpp"
 #include "motor.hpp"
 #include "uartcomm.hpp"
-
-#include <atomic>
-#include <string>
 
 TaskHandle_t motor_slow_loop_task_handle;
 void motor_slow_loop(void* param);
@@ -39,7 +33,6 @@ Motor motor(flash, comm_manager, BSP::tim1_svpwm());
 // float debug_rad;
 extern "C" void app_main(void* param) {
     BSP::time_init();
-    BSP::adc_measure_start();
     BSP::ic_spi_bus().init();
     BSP::sensor_spi_bus().init();
     BSP::sensor_i2c_bus().init();
@@ -66,7 +59,7 @@ extern "C" void app_main(void* param) {
         return;
     }
 
-    motor.enable(true);
+    // 初始化完成后保持待机，等待显式使能命令。
     
     //创建状态更新环路
     xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, NULL, 1, &motor_slow_loop_task_handle);

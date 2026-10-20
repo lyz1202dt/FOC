@@ -24,14 +24,10 @@ AS5047P::AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs)
     transfer_.before_cb = [](bsp::SpiTransferEvent& event) {
         auto* self = static_cast<AS5047P*>(event.context);
         self->cs_.write(false);
-        // tL >= 350 ns, even at the STM32G431 maximum clock of 170 MHz.
-        __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
     };
     transfer_.after_cb = [](bsp::SpiTransferEvent& event) {
         auto* self = static_cast<AS5047P*>(event.context);
         self->cs_.write(true);
-        // tCSn >= 350 ns before another caller may submit the next frame.
-        __asm volatile(".rept 64\n\tnop\n\t.endr" ::: "memory");
         if (event.status == bsp::SpiTransferStatus::Ok) {
             uint16_t parity = self->rx_word_;
             parity ^= static_cast<uint16_t>(parity >> 8);
@@ -49,16 +45,12 @@ AS5047P::AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs)
                     self->next_command_ = kReadErrorCommand;
                 }
             }
-            // MISO belongs to the preceding command, not the command just sent.
-            // Discard the first response and never interpret ERRFL as an angle.
             self->pending_response_ = self->tx_word_ == kReadAngleCommand
                                           ? Response::Angle : Response::ErrorFlags;
         } else {
-            // A partial frame loses pipeline alignment. Clear errors and prime again.
             self->pending_response_ = Response::None;
             self->next_command_ = kReadErrorCommand;
         }
-        // No automatic resubmission: get_value() controls the sampling rate.
         self->read_pending_.store(false, std::memory_order_release);
     };
 }

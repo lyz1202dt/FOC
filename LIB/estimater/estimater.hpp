@@ -7,6 +7,7 @@ public:
     Estimater(Flash &flash) : flash(flash) {}
     virtual ~Estimater() = default;
     virtual void set_raw_rad(float rad, bool available) {
+        is_available_ = available;
         if (available) {
             measured_rad_ = rad;
         }
@@ -24,5 +25,5 @@ public:
 protected:
     Flash &flash;
     float measured_rad_{0.0f};
-    bool is_available_{true};
+    bool is_available_{false};
 };
