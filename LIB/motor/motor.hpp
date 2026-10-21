@@ -1,15 +1,12 @@
 #pragma once
 
-#include "FreeRTOS.h"
 #include "encoder.hpp"
 #include "controller.hpp"
 #include "driver.hpp"
 #include "estimater.hpp"
 #include "flash.hpp"
 #include "queue.h"
-#include <cstddef>
 #include <cstdint>
-#include <functional>
 #include "comm.hpp"
 #include "memorypoll.hpp"
 #include "svpwm.hpp"

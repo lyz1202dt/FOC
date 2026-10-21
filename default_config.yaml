@@ -7,3 +7,6 @@ config:
   foc:
     n: ["int32",7]
     offset: ["float32",0.0]
+    pid:
+      ki: 0.1
+      kd: 0.1

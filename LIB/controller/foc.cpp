@@ -7,6 +7,16 @@ FOC::FOC(Flash &flash) : Controller(flash) {
     offset=0;
     flash.read_value("foc/n",n);
     flash.read_value("foc/offset",offset);
+    flash.read_value("foc/pid/kp",iq_pid.kp_);
+    flash.read_value("foc/pid/ki",iq_pid.ki_);
+    flash.read_value("foc/pid/kp",id_pid.kp_);
+    flash.read_value("foc/pid/ki",id_pid.ki_);
+    iq_pid.output_limit_=1e7f;
+    id_pid.output_limit_=1e7f;
+    iq_pid.inter_limit_=1000.0f;
+    id_pid.inter_limit_=1000.0f;
+    iq_pid.reset();
+    id_pid.reset();
 }
 
 void FOC::reset() {
@@ -44,6 +54,17 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
 
     float vq=iq_pid.update(iq,exp_iq_);
     float vd=id_pid.update(id,0.0f);
+
+    //电压限幅，但是保证电压矢量方向不变
+    float voltage_mag;
+    arm_sqrt_f32(vq*vq+vd*vd, &voltage_mag);
+    const float safe_voltage=0.9f*0.866025404f*vbus;
+    if(voltage_mag>safe_voltage)
+    {
+        float k=safe_voltage/voltage_mag;
+        vq=vq*k;
+        vd=vd*k;
+    }
     
     s=-s;   //得到逆矩阵，用于将电压转回静止坐标系
     float vx=c*vd-s*vq;

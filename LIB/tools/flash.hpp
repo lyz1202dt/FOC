@@ -38,11 +38,11 @@ public:
     template <typename T>
     bool read_value(const char* key, T& value) {
         static_assert(std::is_trivially_copyable<T>::value, "Flash only supports trivially copyable value types");
-        return read_raw(key, &value, sizeof(T));
+        return read_raw(key, &value);
     }
 
     bool write_raw(const char* key, const void* value, size_t length);
-    bool read_raw(const char* key, void* value, size_t length);
+    bool read_raw(const char* key, void* value);
 
     static SemaphoreHandle_t write_mutex;
     static SemaphoreHandle_t read_mutex;

@@ -695,7 +695,7 @@ bool Flash::write_raw(const char* key, const void* value, size_t length) {
     return ok;
 }
 
-bool Flash::read_raw(const char* key, void* value, size_t length) {
+bool Flash::read_raw(const char* key, void* value) {
     if (!initialized_) {
         init();
     }
@@ -703,12 +703,12 @@ bool Flash::read_raw(const char* key, void* value, size_t length) {
         return false;
     }
     size_t key_size = 0U;
-    bool ok = get_key_length(key, &key_size) && value != nullptr && length > 0U;
+    bool ok = get_key_length(key, &key_size) && value != nullptr;
     if (ok) {
         const Data* item = find_data(key, key_size);
-        ok = item != nullptr && static_cast<size_t>(item->size) == length;
+        ok = item != nullptr;
         if (ok) {
-            std::memcpy(value, item->p_data, length);
+            std::memcpy(value, item->p_data, static_cast<size_t>(item->size));
         }
     }
     give_mutex(read_mutex);

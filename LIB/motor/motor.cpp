@@ -3,7 +3,6 @@
 #include "estimater.hpp"
 #include "flash.hpp"
 #include "foc.hpp"
-#include "hardware.hpp"
 #include "idel.hpp"
 #include "pack.h"
 #include "projdefs.h"
@@ -295,7 +294,7 @@ bool Motor::handle_event() {
         }
         const size_t value_offset = 1U + static_cast<size_t>(key_end - key) + 1U;
         if (value_offset != command->size || value_length > kMaxPayloadSize - value_offset
-            || !flash_.read_raw(key, command->data + value_offset, value_length)) {
+            || !flash_.read_raw(key, command->data + value_offset)) {
             memory_poll_.release_blob(command);
             return false;
         }
