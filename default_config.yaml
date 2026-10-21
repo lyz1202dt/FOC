@@ -1,0 +1,9 @@
+#数据类型有:int32 uint32 int64 uint64 float32 float64 str(按照实际字符串长度处理,‘/0’结束)
+config:
+  components:
+    encoder: ["int32",0]
+    estimater: ["int32",0]
+    driver: ["int32",0]
+  foc:
+    n: ["int32",7]
+    offset: ["int32",7]

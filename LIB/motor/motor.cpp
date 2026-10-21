@@ -77,7 +77,7 @@ bool Motor::init() {
     }
 
     int estimater_type = 0;
-    flash_.read_value("estimater", estimater_type);      // 加载配置指定的Estimater
+    flash_.read_value("components/estimater", estimater_type);      // 加载配置指定的Estimater
     switch (estimater_type) {                            // 根据配置的编码器读取数据
     case 0:                                              // 默认估计器
         estimater_ = new Estimater(flash_);
@@ -310,7 +310,10 @@ bool Motor::handle_event() {
         return sent;
     } else if (cmd == 0x09) // 保存参数值到flash中
     {
-        flash_.fresh();
+        if (!flash_.fresh()) {
+            memory_poll_.release_blob(command);
+            return false;
+        }
     } else if (cmd == 0x0A) // 清除错误信息
     {
         core_error_ = 0;

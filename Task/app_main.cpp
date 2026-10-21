@@ -77,7 +77,7 @@ void motor_slow_loop(void* param) {
 // 启动阶段调用一次，构建的组件在整个应用生命周期内供 motor 使用。
 void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     int encoder_type = 0;
-    flash.read_value("encoder", encoder_type);
+    flash.read_value("components/encoder", encoder_type);
     switch (encoder_type) {
     case 0: encoder = new AS5600(flash, BSP::sensor_i2c_bus()); break;
     case 1: encoder = new AS5047P(flash, BSP::sensor_spi_bus(), BSP::sensor_spi_cs()); break;
@@ -85,7 +85,7 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     }
 
     int driver_type = 0; // 未配置时沿用 DRV8301。
-    flash.read_value("driver", driver_type);
+    flash.read_value("components/driver", driver_type);
     switch (driver_type) {
     case 0:
         driver = new DRV8301(

@@ -13,7 +13,7 @@ void FOC::reset() {
     iq_pid.reset();
     id_pid.reset();
     cur_iq_ = 0.0f;
-    c1 = c2 = c3 = vbus = rad = 0.0f;
+    c1 = c2 = c3 = vbus = rad =  0.0f;
     first_run = true;
 }
 
