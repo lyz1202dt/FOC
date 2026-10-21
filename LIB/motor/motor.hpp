@@ -68,6 +68,8 @@ private:
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};
     bool enable_motor_{false};
     bool motor_is_ready_{false};
+
+    int slow_loop_cnt{0};
     //Controllers
     Controller* controllers_[ControllerType::CONTROLLER_NUM]{};
     //当前状态

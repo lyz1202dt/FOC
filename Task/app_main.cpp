@@ -46,7 +46,8 @@ extern "C" void app_main(void* param) {
 
     //组织通信接口
     uart_comm.init();
-    comm_manager.register_comm_channel(&uart_comm);     //注册唯一的一个串口交互设备
+    comm_manager.register_comm_channel(&uart_comm);     //注册一个串口交互设备
+    //TODO:注册CAN设备
 
     //电机初始化
     if (!motor->init()) {
@@ -57,9 +58,6 @@ extern "C" void app_main(void* param) {
         }
         return;
     }
-
-    // 初始化完成后保持待机，等待显式使能命令。
-    
     //创建状态更新环路
     xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, motor, 1, &motor_slow_loop_task_handle);
     //创建事件处理环路

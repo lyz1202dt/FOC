@@ -126,7 +126,7 @@ bool Motor::init() {
         return false;
     }
     svpwm_.enable_timer(true);            // 启动定时器，触发ADC采样
-    if (!driver_->self_check()) {         // 自检，校准电流
+    if (!driver_->self_check()) {         // 自检，校准电流采样
         core_error_ = 0x0B;
         return false;
     }
@@ -195,7 +195,7 @@ bool Motor::fast_loop() {
     last_voltage_[1] = voltage[1];
     last_voltage_[2] = voltage[2];
 
-    // 检查控制器和估计器热切换
+    // 检查控制器和估计器热切换，更新状态
     if (next_estimater_ && (next_estimater_ != estimater_))
         estimater_ = next_estimater_;
     if (next_controller_ && (next_controller_ != controller_))
@@ -325,12 +325,21 @@ bool Motor::slow_loop() {
         // TODO:指示FOC正常运转
     } else if (state == State::IDEL) {
         // 发送心跳包指示设备就绪
-        Command ok_pack = {.cmd = 0x5A, .size = 0};
-        for (int i = 0; i < comm_manager_.comm_num(); i++)
-            comm_manager_.send_pack(&ok_pack, i);
+        
     } else if (state == TEST) {
         // TODO:电压开环测试状态
     }
+
+    //一般的任务
+    Command ok_pack = {.cmd = 0x5A, .size = 0};
+    for (int i = 0; i < comm_manager_.comm_num(); i++)
+    {
+        if(comm_manager_[i]->allow_send()==0)  //此时总线允许发送
+            comm_manager_.send_pack(&ok_pack, i);
+    }
+        
+
+    slow_loop_cnt++;
     return true;
 }
 

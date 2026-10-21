@@ -19,6 +19,9 @@ public:
         (void)data;
         return false;
     };
+    virtual int allow_send() {
+        return 0;
+    };
 };
 
 class CommManager {
@@ -68,6 +71,12 @@ public:
 
     int comm_num()const {
         return comm_num_;
+    }
+
+    Comm* operator[](int index){
+        if(index>=comm_num_)
+            return nullptr;
+        return p_comm_[index];
     }
 
 private:
