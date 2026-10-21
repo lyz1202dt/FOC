@@ -24,13 +24,6 @@ constexpr float kVbusDividerRatio          = 11.0f; // R5=20K, R9=2K on SCH_Sche
 constexpr uint16_t kCurrentAdcLowerBound = static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMinVolt / kAdcReferenceVolts);
 constexpr uint16_t kCurrentAdcUpperBound = static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMaxVolt / kAdcReferenceVolts);
 
-void append_reason(std::string& reason, const char* text) {
-    if (!reason.empty()) {
-        reason += ", ";
-    }
-    reason += text;
-}
-
 void delay_us(uint32_t us) {
     if (us == 0U) {
         return;
@@ -201,76 +194,76 @@ bool DRV8301::is_ready() {
     return state_ == State::Ready;
 }
 
-int DRV8301::lookup_reason(std::string& reason) {
-    reason.clear();
+// int DRV8301::lookup_reason(std::string& reason) {
+//     reason.clear();
 
-    FaultType_e fault = static_cast<FaultType_e>(last_fault_);
-    if (fault == FaultType_NoFault && state_ == State::Ready) {
-        fault = get_error();
-    }
-    if (fault == FaultType_NoFault && state_ == State::Ready && !fault_.read()) {
-        fault = FaultType_FAULT;
-    }
+//     FaultType_e fault = static_cast<FaultType_e>(last_fault_);
+//     if (fault == FaultType_NoFault && state_ == State::Ready) {
+//         fault = get_error();
+//     }
+//     if (fault == FaultType_NoFault && state_ == State::Ready && !fault_.read()) {
+//         fault = FaultType_FAULT;
+//     }
 
-    if (fault == FaultType_NoFault) {
-        if (state_ != State::Ready) {
-            reason = "DRV8301 not initialized";
-            return -1;
-        }
+//     if (fault == FaultType_NoFault) {
+//         if (state_ != State::Ready) {
+//             reason = "DRV8301 not initialized";
+//             return -1;
+//         }
 
-        reason = "OK";
-        return 0;
-    }
+//         reason = "OK";
+//         return 0;
+//     }
 
-    if (fault & FaultType_SPI) {
-        append_reason(reason, "SPI communication failed");
-    }
-    if (fault & FaultType_FETLC_OC) {
-        append_reason(reason, "phase C low-side over-current");
-    }
-    if (fault & FaultType_FETHC_OC) {
-        append_reason(reason, "phase C high-side over-current");
-    }
-    if (fault & FaultType_FETLB_OC) {
-        append_reason(reason, "phase B low-side over-current");
-    }
-    if (fault & FaultType_FETHB_OC) {
-        append_reason(reason, "phase B high-side over-current");
-    }
-    if (fault & FaultType_FETLA_OC) {
-        append_reason(reason, "phase A low-side over-current");
-    }
-    if (fault & FaultType_FETHA_OC) {
-        append_reason(reason, "phase A high-side over-current");
-    }
-    if (fault & FaultType_OTW) {
-        append_reason(reason, "over-temperature warning");
-    }
-    if (fault & FaultType_OTSD) {
-        append_reason(reason, "over-temperature shutdown");
-    }
-    if (fault & FaultType_PVDD_UV) {
-        append_reason(reason, "PVDD under-voltage");
-    }
-    if (fault & FaultType_GVDD_UV) {
-        append_reason(reason, "GVDD under-voltage");
-    }
-    if (fault & FaultType_GVDD_OV) {
-        append_reason(reason, "GVDD over-voltage");
-    }
-    if (fault & FaultType_CurrentSenseSaturation) {
-        append_reason(reason, "current sense saturation");
-    }
-    if (fault & FaultType_FAULT) {
-        append_reason(reason, "nFAULT asserted");
-    }
+//     if (fault & FaultType_SPI) {
+//         append_reason(reason, "SPI communication failed");
+//     }
+//     if (fault & FaultType_FETLC_OC) {
+//         append_reason(reason, "phase C low-side over-current");
+//     }
+//     if (fault & FaultType_FETHC_OC) {
+//         append_reason(reason, "phase C high-side over-current");
+//     }
+//     if (fault & FaultType_FETLB_OC) {
+//         append_reason(reason, "phase B low-side over-current");
+//     }
+//     if (fault & FaultType_FETHB_OC) {
+//         append_reason(reason, "phase B high-side over-current");
+//     }
+//     if (fault & FaultType_FETLA_OC) {
+//         append_reason(reason, "phase A low-side over-current");
+//     }
+//     if (fault & FaultType_FETHA_OC) {
+//         append_reason(reason, "phase A high-side over-current");
+//     }
+//     if (fault & FaultType_OTW) {
+//         append_reason(reason, "over-temperature warning");
+//     }
+//     if (fault & FaultType_OTSD) {
+//         append_reason(reason, "over-temperature shutdown");
+//     }
+//     if (fault & FaultType_PVDD_UV) {
+//         append_reason(reason, "PVDD under-voltage");
+//     }
+//     if (fault & FaultType_GVDD_UV) {
+//         append_reason(reason, "GVDD under-voltage");
+//     }
+//     if (fault & FaultType_GVDD_OV) {
+//         append_reason(reason, "GVDD over-voltage");
+//     }
+//     if (fault & FaultType_CurrentSenseSaturation) {
+//         append_reason(reason, "current sense saturation");
+//     }
+//     if (fault & FaultType_FAULT) {
+//         append_reason(reason, "nFAULT asserted");
+//     }
 
-    if (reason.empty()) {
-        reason = "unknown DRV8301 fault";
-    }
+//     if (reason.empty()) {
+//         reason = "unknown DRV8301 fault";
+//     }
 
-    return -2;
-}
+//     return -2;
+// }
 
 bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
     if (!is_ready()) {

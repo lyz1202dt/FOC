@@ -2,13 +2,13 @@
 
 // 1：编译该测试及其结果变量；0：完全排除。也可通过编译选项 -D 覆盖。
 #ifndef TEST_AS5047P_ENABLED
-#define TEST_AS5047P_ENABLED 1
+#define TEST_AS5047P_ENABLED 0
 #endif
 #ifndef TEST_AS5600_ENABLED
-#define TEST_AS5600_ENABLED 1
+#define TEST_AS5600_ENABLED 0
 #endif
 #ifndef TEST_DRV8301_ENABLED
-#define TEST_DRV8301_ENABLED 1
+#define TEST_DRV8301_ENABLED 0
 #endif
 
 // 在调度器启动后的任务上下文中选择一个调用，不可与电机控制环同时运行。

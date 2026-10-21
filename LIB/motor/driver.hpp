@@ -23,11 +23,6 @@ public:
     virtual bool enable_measure(bool enable){
         return false;
     };
-
-    virtual int lookup_reason(std::string& reason) {                   // 查询错误原因并上报
-        reason = "Not Set";
-        return 0;
-    }
     virtual bool get_vbus_voltage(float& vol) {                        // 获取总线电压
         vol = 24.0f;
         return true;

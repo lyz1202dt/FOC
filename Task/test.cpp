@@ -104,6 +104,7 @@ struct Drv8301TestResult {
     bool passed{false};
     bool status_valid{false};
     DRV8301::StatusRegisters status{};
+    DRV8301::FaultType_e fault{DRV8301::FaultType_NoFault};
     std::string reason;
     float vbus_voltage{0.0f};
     float phase_a_current{0.0f};
@@ -131,7 +132,7 @@ Drv8301TestResult drv8301_sample_result;
         // init() 配置芯片和 PWM 外设，保持功率输出关闭。
         drv8301_sample_result.stage = "DriverInit";
         if (!driver.init()) {
-            driver.lookup_reason(drv8301_sample_result.reason);
+            drv8301_sample_result.reason = "Driver initialization failed";
             drv8301_sample_result.status_valid = driver.read_status(drv8301_sample_result.status);
             break;
         }
@@ -166,20 +167,24 @@ Drv8301TestResult drv8301_sample_result;
     if (!drv8301_sample_result.passed) {
         // 关闭 EN_GATE 前保留首次故障，避免复位芯片后丢失原因。
         drv8301_sample_result.status_valid = driver.read_status(drv8301_sample_result.status);
-        if (!driver.is_ready()) {
-            driver.lookup_reason(drv8301_sample_result.reason);
-        }
+        drv8301_sample_result.fault = driver.get_error();
     }
 
     while (true) {
         if (drv8301_sample_result.passed) {
             drv8301_sample_result.status_valid = driver.read_status(drv8301_sample_result.status);
             const bool ready = driver.is_ready();
-            const int reason_code = driver.lookup_reason(drv8301_sample_result.reason);
-            if (!drv8301_sample_result.status_valid || !ready || reason_code != 0) {
+            drv8301_sample_result.fault = driver.get_error();
+            const bool fault_active = !BSP::drv8301_fault().read();
+            if (!drv8301_sample_result.status_valid || !ready ||
+                drv8301_sample_result.fault != DRV8301::FaultType_NoFault || fault_active) {
                 // 保留首个失败结果，不自动重启或清故障。
-                if (!drv8301_sample_result.status_valid) {
+                if (!drv8301_sample_result.status_valid)  {
                     drv8301_sample_result.reason = "Status register SPI read failed";
+                } else if (!ready) {
+                    drv8301_sample_result.reason = "Driver not ready";
+                } else {
+                    drv8301_sample_result.reason = "Driver fault detected";
                 }
                 drv8301_sample_result.passed = false;
                 drv8301_sample_result.stage = "MonitorFailed";

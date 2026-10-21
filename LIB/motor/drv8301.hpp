@@ -49,7 +49,6 @@ public:
     bool enable_pwm(bool enable) override;
     bool enable_measure(bool enable) override;
     bool is_ready() override;
-    int lookup_reason(std::string& reason) override;
 
     bool get_vbus_voltage(float& vol) override;
     bool get_phrase_current(float& c1, float& c2, float& c3) override;
