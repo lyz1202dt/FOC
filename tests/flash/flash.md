@@ -81,3 +81,45 @@ reserved 和填充字节为 `0xFF`。
 以及每次编程/擦除前、半写入、完整写入后和不可见 ECC 消耗的故障注入。
 
 模拟不覆盖真实芯片的不可纠正 ECC / NMI 行为，也不能替代实际板子的断电测试。
+
+## 构建时生成默认配置与同步下载
+
+主机需要 Python 3 和 PyYAML（`python3 -m pip install PyYAML`）。
+
+```sh
+cmake --preset Debug
+cmake --build --preset Debug
+# 同一次 J-Link 会话下载程序并强制覆盖全部配置，完成后复位运行
+cmake --build --preset Debug --target flash
+```
+
+Release 使用相应 preset。构建本身不会连接硬件。
+每个构建目录生成 `default_config.bin`（完整 4096 字节镜像）、
+`default_config.hex`（稀疏的已使用双字）和 `default_config.json`（配置清单）。
+YAML 或生成脚本发生变化会自动重新生成，不依赖固件重新链接。
+
+`default_config.yaml` 的 `config` 是容器，不进入 key；其下路径使用 `/` 连接。
+叶子必须为 `[类型, 值]`，仅支持 int32/uint32/int64/uint64/float32/float64。
+整数和浮点数按小端序编码；不支持字符串值，`str` 类型会使构建失败。
+key 使用 ASCII，不含终止符。
+数值类型必须匹配固件读取变量，尤其 `foc/offset` 必须是 float32。
+重复 YAML key、非法类型、越界值、非有限浮点值和超出单页容量均使构建失败。
+
+镜像第一页 sequence=1，包含一个完整提交批次；第二页全为擦除态。
+`flash` 目标先下载程序，再显式擦除 `0x0801F000..0x0801FFFF` 两页，
+下载稀疏 HEX，使用完整 BIN 回读校验两页，然后复位运行。
+显式擦除第二页可防止旧页较大的 sequence 覆盖默认配置的选择结果。
+HEX 不包含全 FF 双字，避免预先消耗空闲区和失效标记的 ECC 编程机会。
+下载期间不要断电；该流程不保证程序与配置整体更新的掉电原子性。
+
+可在 configure 时指定 `-DJLINK_EXECUTABLE=/path/to/JLinkExe`、
+`-DJLINK_SERIAL=探针序列号`；连接多个探针时必须指定序列号。
+目标固定为 STM32G431CB、SWD、4000 kHz。
+
+VS Code 的 `Flash` task 使用同一 CMake 目标；J-Link 调试配置将其作为
+preLaunchTask，随后仅复位/暂停，不再执行第二次程序下载。
+ELF 仍用于调试符号。直接用其他工具只下载 `foc.elf` 不会更新默认配置。
+
+`./tests/flash/run.sh` 还会生成包含全部支持类型的测试镜像，使用生产
+`Flash::init()` 加载，并验证追加保存和再次加载；同时检查输入校验和稀疏 HEX。
+真实 J-Link 擦除、校验及后续保存行为仍需板上验证。

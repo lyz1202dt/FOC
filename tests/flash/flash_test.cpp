@@ -480,10 +480,44 @@ HAL_StatusTypeDef HAL_FLASHEx_Erase(FLASH_EraseInitTypeDef* erase, uint32_t*) {
     return HAL_OK;
 }
 
-int main() {
+void generated_image(const char* filename) {
+    blank();
+    FILE* file = std::fopen(filename, "rb");
+    CHECK(file != nullptr);
+    CHECK(std::fread(reinterpret_cast<void*>(kStorage), 1, 4096, file) == 4096);
+    CHECK(std::fgetc(file) == EOF);
+    CHECK(std::fclose(file) == 0);
+    for (size_t offset = 0; offset < 4096; offset += 8) {
+        uint64_t word;
+        std::memcpy(&word, reinterpret_cast<void*>(kStorage + offset), 8);
+        programmed[(kStorage - FLASH_BASE + offset) / 8] = word != UINT64_MAX;
+    }
+    Flash flash;
+    flash.init();
+    CHECK(erase_count == 0);
+    expect(flash, "test/u32", UINT32_MAX);
+    int32_t i32 = 0;
+    int64_t i64 = 0;
+    uint64_t u64 = 0;
+    float f32 = 0;
+    double f64 = 0;
+    CHECK(flash.read_value("test/i32", i32) && i32 == INT32_MIN);
+    CHECK(flash.read_value("test/i64", i64) && i64 == INT64_MIN);
+    CHECK(flash.read_value("test/u64", u64) && u64 == UINT64_MAX);
+    CHECK(flash.read_value("test/f32", f32) && f32 == 1.5f);
+    CHECK(flash.read_value("test/f64", f64) && f64 == -2.5);
+    CHECK(flash.write_value("test/u32", uint32_t{42}));
+    CHECK(flash.fresh());
+    CHECK(erase_count == 0 && duplicate_attempts == 0);
+    flash.init();
+    expect(flash, "test/u32", 42);
+}
+
+int main(int argc, char** argv) {
     void* mapping = mmap(reinterpret_cast<void*>(FLASH_BASE), FLASH_SIZE, PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
     CHECK(mapping == reinterpret_cast<void*>(FLASH_BASE));
+    if (argc == 2) { generated_image(argv[1]); }
     append_behavior();
     capacity_and_collection();
     format_reset();

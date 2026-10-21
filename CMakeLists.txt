@@ -92,3 +92,38 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+
+# Host-side default configuration image; never parsed on the MCU.
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+execute_process(COMMAND "${Python3_EXECUTABLE}" -c "import yaml"
+    RESULT_VARIABLE YAML_IMPORT_RESULT)
+if(NOT YAML_IMPORT_RESULT EQUAL 0)
+    message(FATAL_ERROR "PyYAML is required: ${Python3_EXECUTABLE} -m pip install PyYAML")
+endif()
+set(CONFIG_OUTPUTS
+    "${CMAKE_CURRENT_BINARY_DIR}/default_config.bin"
+    "${CMAKE_CURRENT_BINARY_DIR}/default_config.hex"
+    "${CMAKE_CURRENT_BINARY_DIR}/default_config.json")
+add_custom_command(OUTPUT ${CONFIG_OUTPUTS}
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate_flash_config.py"
+        --input "${CMAKE_CURRENT_SOURCE_DIR}/default_config.yaml"
+        --output-dir "${CMAKE_CURRENT_BINARY_DIR}"
+    DEPENDS default_config.yaml scripts/generate_flash_config.py
+    VERBATIM)
+add_custom_target(default_config ALL DEPENDS ${CONFIG_OUTPUTS})
+add_dependencies(${CMAKE_PROJECT_NAME} default_config)
+
+set(JLINK_EXECUTABLE "JLinkExe" CACHE STRING "J-Link Commander executable")
+set(JLINK_SERIAL "" CACHE STRING "J-Link probe serial number (required if multiple probes are connected)")
+set(JLINK_SELECT_ARGS)
+if(JLINK_SERIAL)
+    list(APPEND JLINK_SELECT_ARGS -USB "${JLINK_SERIAL}")
+endif()
+set(FLASH_ELF "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.elf")
+configure_file(scripts/flash.jlink.in flash.jlink @ONLY)
+add_custom_target(flash
+    COMMAND "${JLINK_EXECUTABLE}" -NoGui 1 -ExitOnError 1 -AutoConnect 1
+        -device STM32G431CB -if SWD -speed 4000 ${JLINK_SELECT_ARGS}
+        -CommanderScript "${CMAKE_CURRENT_BINARY_DIR}/flash.jlink"
+    DEPENDS ${CMAKE_PROJECT_NAME} default_config
+    USES_TERMINAL VERBATIM)

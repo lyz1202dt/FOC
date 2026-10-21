@@ -1,0 +1,9 @@
+r
+h
+loadfile "@FLASH_ELF@"
+erase 0x0801F000 0x0801FFFF
+loadfile "@CMAKE_CURRENT_BINARY_DIR@/default_config.hex"
+verifybin "@CMAKE_CURRENT_BINARY_DIR@/default_config.bin" 0x0801F000
+r
+g
+exit
