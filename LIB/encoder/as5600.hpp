@@ -16,7 +16,7 @@ public:
 
     AS5600(Flash& flash, BSP::I2CBus& bus, bool use_angle_when_magnet_weak = true);
     bool init() override;
-    float get_value() override;
+    bool get_value(float& value, uint32_t max_age_us) override;
     bool GetMagnetStatus(MagnetStatus& status) const;
 private:
     BSP::I2CBus& bus_;

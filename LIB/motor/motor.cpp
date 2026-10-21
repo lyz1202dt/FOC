@@ -130,20 +130,6 @@ bool Motor::init() {
         core_error_ = 0x0B;
         return false;
     }
-
-    if (!sensorless_mode_) {
-        for (;;) {
-            const float rad = encoder_->get_value();
-            estimater_->set_raw_rad(rad, encoder_->value_is_available(2000));
-            float estimated_rad = 0.0f;
-            float estimated_omega = 0.0f;
-            if (estimater_->update() && estimater_->get_value(estimated_rad, estimated_omega)) {
-                break;
-            }
-            vTaskDelay(1);
-        }
-    }
-
     motor_is_ready_ = true;
     return true;
 }
@@ -181,7 +167,9 @@ bool Motor::fast_loop() {
         return false;
     }
 
-    estimater_->set_raw_rad(encoder_->get_value(), encoder_->value_is_available(2000));
+    float encoder_rad = 0.0f;
+    const bool encoder_available = encoder_->get_value(encoder_rad, 2000U);
+    estimater_->set_raw_rad(encoder_rad, encoder_available);
     // 估计器输入
     if (sensorless_mode_) {  // 无感模式还要输入电压和电流
         estimater_->set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);

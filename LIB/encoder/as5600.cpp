@@ -59,13 +59,10 @@ AS5600::AS5600(Flash& flash, BSP::I2CBus& bus, bool use_angle_when_magnet_weak)
 }
 
 bool AS5600::init() {
-    if (recovery_task_ != nullptr) {
-        return true;
-    }
-    if (!bus_.valid()) {
+    if (__get_IPSR() != 0U || !bus_.valid()) {
         return false;
     }
-    return xTaskCreate([](void* context) {
+    if (recovery_task_ == nullptr && xTaskCreate([](void* context) {
         auto* self = static_cast<AS5600*>(context);
         for (;;) {
             (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -80,13 +77,28 @@ bool AS5600::init() {
             }
         }
     }, "as5600_recover", 192U, this, tskIDLE_PRIORITY + 1U,
-       &recovery_task_) == pdPASS;
+       &recovery_task_) != pdPASS) {
+        return false;
+    }
+
+    float angle = 0.0f;
+    for (unsigned attempt = 0U; attempt < 20U; ++attempt) {
+        if (get_value(angle, 2000U)) {
+            return true;
+        }
+        // Yield so the asynchronous read and recovery task can complete.
+        vTaskDelay(pdMS_TO_TICKS(1U));
+        if (Encoder::get_value(angle, 2000U)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-float AS5600::get_value() {
-    const float rad = Encoder::get_value();
+bool AS5600::get_value(float& value, uint32_t max_age_us) {
+    const bool available = Encoder::get_value(value, max_age_us);
     if (recovery_task_ == nullptr) {
-        return rad;
+        return available;
     }
     // Serialize the deadline check with the completion ISR and recovery task.
     const uint32_t interrupt_mask = __get_PRIMASK();
@@ -113,17 +125,17 @@ float AS5600::get_value() {
         } else {
             xTaskNotifyGive(recovery_task_);
         }
-        return rad;
+        return available;
     }
     if (!start_read) {
-        return rad;
+        return available;
     }
 
     if (!bus_.transferIt(transfer_)) {
         status_.store(0U, std::memory_order_release);
         read_pending_.store(false, std::memory_order_release);
     }
-    return rad;
+    return available;
 }
 
 bool AS5600::GetMagnetStatus(MagnetStatus& status) const {

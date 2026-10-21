@@ -35,10 +35,9 @@ As5047pTestResult as5047p_sample_result;
 
     uint32_t led_count = 0U;
     while (true) {
-        // get_value() 返回上次的位置，并发起一帧异步传输；前两帧建立读取流水线。
+        // get_value() 输出缓存位置、返回新鲜度，并发起异步传输；前两帧建立读取流水线。
         if (as5047p_sample_result.encoder_ready) {
-            as5047p_sample_result.angle_rad = test_encoder.get_value();
-            as5047p_sample_result.value_available = test_encoder.value_is_available(10000U);
+            as5047p_sample_result.value_available = test_encoder.get_value(as5047p_sample_result.angle_rad, 10000U);
         }
         // 新鲜数据：约 500ms 翻转 LED；初始化失败或数据超时：约 100ms。
         const uint32_t led_period = as5047p_sample_result.value_available ? 500U : 100U;
@@ -81,8 +80,7 @@ As5600TestResult as5600_test_result;
     uint32_t led_count = 0U;
     while (true) {
         if (as5600_test_result.encoder_ready) {
-            as5600_test_result.angle_rad = test_encoder.get_value();
-            as5600_test_result.value_available = test_encoder.value_is_available(10000U);
+            as5600_test_result.value_available = test_encoder.get_value(as5600_test_result.angle_rad, 10000U);
             as5600_test_result.magnet_status_valid = test_encoder.GetMagnetStatus(as5600_test_result.magnet_status);
         }
         const uint32_t led_period = as5600_test_result.value_available ? 500U : 100U;

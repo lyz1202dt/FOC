@@ -1,4 +1,5 @@
 #include "as5047p.hpp"
+#include "task.h"
 
 namespace {
 
@@ -56,26 +57,37 @@ AS5047P::AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs)
 }
 
 bool AS5047P::init() {
-    if (initialized_.load(std::memory_order_acquire)) {
-        return true;
-    }
-    if (!bus_.valid()) {
+    // Initialization waits for interrupt-driven sampling and must run in a task.
+    if (__get_IPSR() != 0U || !bus_.valid()) {
         return false;
     }
+    if (!initialized_.load(std::memory_order_acquire)) {
+        cs_.write(true);
+        initialized_.store(true, std::memory_order_release);
+    }
 
-    cs_.write(true);
-    initialized_.store(true, std::memory_order_release);
-    return true;
+    float angle = 0.0f;
+    for (unsigned attempt = 0U; attempt < 20U; ++attempt) {
+        if (get_value(angle, 2000U)) {
+            return true;
+        }
+        // Allow completion IRQs to fill the response pipeline before retrying.
+        vTaskDelay(pdMS_TO_TICKS(1U));
+        if (Encoder::get_value(angle, 2000U)) {
+            return true;
+        }
+    }
+    return false;
 }
 
-float AS5047P::get_value() {
-    const float rad = Encoder::get_value();
+bool AS5047P::get_value(float& value, uint32_t max_age_us) {
+    const bool available = Encoder::get_value(value, max_age_us);
     if (!initialized_.load(std::memory_order_acquire)) {
-        return rad;
+        return available;
     }
     bool expected = false;
     if (!read_pending_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        return rad;
+        return available;
     }
 
     tx_word_ = next_command_;
@@ -83,5 +95,5 @@ float AS5047P::get_value() {
         // Queue rejection sends no frame, so keep the existing pipeline state.
         read_pending_.store(false, std::memory_order_release);
     }
-    return rad;
+    return available;
 }

@@ -11,7 +11,7 @@ class AS5047P : public Encoder {
 public:
     AS5047P(Flash& flash, BSP::SPIBus& bus, BSP::Gpio& cs);
     bool init() override;
-    float get_value() override;
+    bool get_value(float& value, uint32_t max_age_us) override;
 
 private:
     enum class Response : uint8_t { None, Angle, ErrorFlags };

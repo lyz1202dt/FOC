@@ -14,21 +14,12 @@ bool Encoder::init()
     return true;
 }
 
-float Encoder::get_value()
-{
-    const uint32_t interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    const float rad = rad_;
-    __set_PRIMASK(interrupt_mask);
-    return rad;
-}
-
-
-bool Encoder::value_is_available(uint32_t max_age_us) const
+bool Encoder::get_value(float& value, uint32_t max_age_us)
 {
     uint64_t sample_time = 0U;
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
+    value = rad_;
     sample_time = encoder_update_us_;
     __set_PRIMASK(interrupt_mask);
 
