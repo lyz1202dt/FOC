@@ -144,6 +144,16 @@ bool Motor::fast_loop() {
         // notify_error(core_error_);
         return true;
     }
+    
+    if (next_estimater_ && next_estimater_ != estimater_) {
+        estimater_ = next_estimater_;
+    }
+    if (next_controller_ && next_controller_ != controller_) {
+        controller_ = next_controller_;
+        controller_->reset();
+    }
+    state = next_state;
+
     if (!driver_->is_ready()) {           // 驱动器不可用，退出
         core_error_ = 0x20;
         notify_error(core_error_);
@@ -195,15 +205,6 @@ bool Motor::fast_loop() {
     last_voltage_[1] = voltage[1];
     last_voltage_[2] = voltage[2];
 
-    // 检查控制器和估计器热切换，更新状态
-    if (next_estimater_ && (next_estimater_ != estimater_))
-        estimater_ = next_estimater_;
-    if (next_controller_ && (next_controller_ != controller_))
-        controller_ = next_controller_;
-    if(next_state!=state)
-    {
-        state=next_state;
-    }
     return true;
 }
 
@@ -212,6 +213,14 @@ void Motor::stop_output() {
     last_voltage_[0] = 0.0f;
     last_voltage_[1] = 0.0f;
     last_voltage_[2] = 0.0f;
+}
+
+void Motor::request_controller(ControllerType type, State requested_state) {
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    next_controller_ = controllers_[type];
+    next_state = requested_state;
+    __set_PRIMASK(interrupt_mask);
 }
 
 bool Motor::handle_event() {
@@ -223,28 +232,25 @@ bool Motor::handle_event() {
         enable(command->data[0] ? true : false);
     } else if (cmd == 0x02)   // 请求切入IDEL模式
     {
-        next_state            = State::IDEL;
-        next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
+        request_controller(ControllerType::CONTROLLER_IDEL, State::IDEL);
     } else if (cmd == 0x03)   // 请求切入开环测试
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            next_state            = State::TEST;
-            next_controller_ = controllers_[ControllerType::CONTROLLER_TEST];
+            request_controller(ControllerType::CONTROLLER_TEST, State::TEST);
         }
     } else if (cmd == 0x04)   // 请求切入FOC闭环
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            next_state            = State::FOC;
-            next_controller_ = controllers_[ControllerType::CONTROLLER_FOC];
+            request_controller(ControllerType::CONTROLLER_FOC, State::FOC);
         }
     } else if (cmd == 0x05)   // 设置FOC参考力矩电流
     {
         controllers_[ControllerType::CONTROLLER_FOC]->controller_reference(command->data, sizeof(float));
     } else if (cmd == 0x06)   // 请求获取电机状态
     {
-        uint8_t send_buffer[sizeof(Command)+sizeof(MotorStatus)]
+        uint8_t send_buffer[sizeof(Command)+sizeof(MotorStatus)];
         Command* pack=(Command*)send_buffer;
         pack->cmd=0x16;
         pack->size=sizeof(MotorStatus);
@@ -309,8 +315,12 @@ bool Motor::handle_event() {
         core_error_ = 0;
     } else if (cmd == 0xFF) // 驱动器错误
     {
+        const uint32_t interrupt_mask = __get_PRIMASK();
+        __disable_irq();
         next_controller_ = controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
-        state                          = State::ERROR;
+        controller_->reset();
+        next_state = state = State::ERROR;
+        __set_PRIMASK(interrupt_mask);
     }
     memory_poll_.release_blob(command);
     return true;

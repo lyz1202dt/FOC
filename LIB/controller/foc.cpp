@@ -5,6 +5,14 @@
 FOC::FOC(Flash &flash) : Controller(flash) {
 }
 
+void FOC::reset() {
+    iq_pid.reset();
+    id_pid.reset();
+    cur_iq_ = 0.0f;
+    c1 = c2 = c3 = vbus = rad = 0.0f;
+    first_run = true;
+}
+
 void FOC::set_measure(
     const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) {
         if(rad_is_trustable)

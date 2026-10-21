@@ -6,6 +6,7 @@ class Controller {
 public:
     Controller(Flash &flash) : flash(flash) {}
     virtual ~Controller() = default;
+    virtual void reset() {}
     virtual void
         set_measure(const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool &rad_is_trustable) {};
     virtual bool get_output(float& v1, float& v2, float& v3) {

@@ -7,6 +7,10 @@ VOC::VOC(Flash &flash): Controller(flash)
 
 }
 
+void VOC::reset() {
+    vir_ecc_rad = 0.0f;
+}
+
 void VOC::set_measure(const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable){
 
 }

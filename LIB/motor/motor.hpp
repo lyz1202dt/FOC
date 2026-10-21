@@ -59,6 +59,7 @@ private:
     bool on_command(Command* data);
     bool notify_error(uint8_t error);
     void stop_output();
+    void request_controller(ControllerType type, State requested_state);
 
     BSP::SVPWM& svpwm_;
     tools::MemoryPoll memory_poll_;
