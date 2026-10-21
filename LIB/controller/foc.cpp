@@ -3,6 +3,10 @@
 #include <cmath>
 
 FOC::FOC(Flash &flash) : Controller(flash) {
+    n=1;        //默认值
+    offset=0;
+    flash.read_value("foc/n",n);
+    flash.read_value("foc/offset",offset);
 }
 
 void FOC::reset() {

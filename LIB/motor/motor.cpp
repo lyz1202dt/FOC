@@ -131,6 +131,19 @@ bool Motor::init() {
         return false;
     }
 
+    if (!sensorless_mode_) {
+        for (;;) {
+            const float rad = encoder_->get_value();
+            estimater_->set_raw_rad(rad, encoder_->value_is_available(2000));
+            float estimated_rad = 0.0f;
+            float estimated_omega = 0.0f;
+            if (estimater_->update() && estimater_->get_value(estimated_rad, estimated_omega)) {
+                break;
+            }
+            vTaskDelay(1);
+        }
+    }
+
     motor_is_ready_ = true;
     return true;
 }

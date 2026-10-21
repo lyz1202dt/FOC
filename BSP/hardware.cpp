@@ -87,6 +87,10 @@ Measure& adc_measure()
 
 bool adc_measure_start()
 {
+    if (__get_IPSR() != 0U ||
+        HAL_ADCEx_Calibration_Start(bsp::hardware::adc1.native(), ADC_SINGLE_ENDED) != HAL_OK) {
+        return false;
+    }
     g_adc_measure.reset();
     return bsp::hardware::adc1.injectedStartIt([]() {
         const uint64_t now = BSP::get_time_us();
@@ -155,10 +159,17 @@ uint64_t get_time_us()
         return 0U;
     }
 
-    __HAL_TIM_DISABLE_IT(tim, TIM_IT_UPDATE);
-    const uint64_t time = static_cast<uint64_t>(__HAL_TIM_GET_COUNTER(tim)) +
-                          (static_cast<uint64_t>(g_timer_update_cnt) << 16);
-    __HAL_TIM_ENABLE_IT(tim, TIM_IT_UPDATE);
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    uint32_t overflow_count = g_timer_update_cnt;
+    uint32_t counter = __HAL_TIM_GET_COUNTER(tim);
+    
+    if (__HAL_TIM_GET_FLAG(tim, TIM_FLAG_UPDATE) != RESET) {
+        ++overflow_count;
+        counter = __HAL_TIM_GET_COUNTER(tim);
+    }
+    const uint64_t time = (static_cast<uint64_t>(overflow_count) << 16) + counter;
+    __set_PRIMASK(interrupt_mask);
     return time;
 }
 
