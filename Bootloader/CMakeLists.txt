@@ -3,7 +3,7 @@ set(BOOT_HAL_DIR ${PROJECT_SOURCE_DIR}/Drivers/STM32G4xx_HAL_Driver)
 add_executable(bootloader
     boot_main.c
     boot_jump.s
-    ${PROJECT_SOURCE_DIR}/Core/Src/system_stm32g4xx.c
+    system_stm32g4xx.c
     ${PROJECT_SOURCE_DIR}/startup_stm32g431xx.s)
 target_sources(bootloader PRIVATE
     ${BOOT_HAL_DIR}/Src/stm32g4xx_hal.c

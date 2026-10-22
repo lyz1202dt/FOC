@@ -120,19 +120,3 @@ add_custom_command(OUTPUT ${CONFIG_OUTPUTS}
     VERBATIM)
 add_custom_target(default_config ALL DEPENDS ${CONFIG_OUTPUTS})
 add_dependencies(${CMAKE_PROJECT_NAME} default_config)
-
-set(JLINK_EXECUTABLE "JLinkExe" CACHE STRING "J-Link Commander executable")
-set(JLINK_SERIAL "" CACHE STRING "J-Link probe serial number (required if multiple probes are connected)")
-set(JLINK_SELECT_ARGS)
-if(JLINK_SERIAL)
-    list(APPEND JLINK_SELECT_ARGS -USB "${JLINK_SERIAL}")
-endif()
-set(FLASH_ELF "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.elf")
-set(BOOTLOADER_ELF "${CMAKE_CURRENT_BINARY_DIR}/bootloader.elf")
-configure_file(scripts/flash.jlink.in flash.jlink @ONLY)
-add_custom_target(flash
-    COMMAND "${JLINK_EXECUTABLE}" -NoGui 1 -ExitOnError 1 -AutoConnect 1
-        -device STM32G431CB -if SWD -speed 4000 ${JLINK_SELECT_ARGS}
-        -CommanderScript "${CMAKE_CURRENT_BINARY_DIR}/flash.jlink"
-    DEPENDS ${CMAKE_PROJECT_NAME} bootloader default_config
-    USES_TERMINAL VERBATIM)

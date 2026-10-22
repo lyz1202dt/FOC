@@ -40,11 +40,38 @@ Bootloader 不初始化 HAL、串口、PLL 或 RTOS，直接读取 APP 向量表
 `Bootloader/CMakeLists.txt` 显式列出参与编译的源码。此前复制的 F1 系统/MSP
 文件、HAL 配置、中断及 syscall 文件均未参与当前最小 Bootloader 构建。
 
-现有 J-Link 烧录入口：
+## 独立烧录脚本
+
+CMake 只构建产物，不包含烧录目标。先构建，再通过独立脚本调用 J-Link：
 
 ```bash
-cmake --build --preset Release --target flash
+cmake --preset Release
+cmake --build --preset Release
+
+# 仅更新应用，保留 Bootloader 和已有配置
+python3 scripts/flash.py --preset Release --image app
+
+# 只更新 Bootloader
+python3 scripts/flash.py --preset Release --image bootloader
+
+# 一次连接烧录两个固件，保留已有配置
+python3 scripts/flash.py --preset Release --image bootloader app
+
+# 仅恢复默认配置，或完整初始化（包含默认配置）
+python3 scripts/flash.py --preset Release --image config
+python3 scripts/flash.py --preset Release --image all
+
+# 预览命令，不连接探针，允许产物尚未生成
+python3 scripts/flash.py --preset Release --image all --dry-run
 ```
 
-该目标先构建并烧录两个 ELF，然后沿用原行为擦除配置区并写入默认配置。
-不执行整片擦除。仅构建固件不会连接探针或操作板卡。
+`--preset` 默认为 `Debug`，也可通过 `--build-dir` 指定产物目录。
+`--exe` 指定 J-Link Commander 路径（默认 `JLinkExe`），多探针时使用
+`--serial-no` 指定序列号。默认芯片为 `STM32G431CB`，接口为 SWD，速度为
+4000 kHz，可分别通过 `--device`、`--interface`、`--speed` 覆盖。
+
+脚本不会自动构建；实际烧录前检查所选产物是否存在。仅选择 `config` 或
+`all` 时擦除配置区并写入、校验默认配置；其余选择保留配置区。
+不执行整片擦除，完成后复位运行。只烧录应用时，板上须已有匹配布局的
+Bootloader；只烧录 Bootloader 时，运行依赖板上已有的应用。
+VS Code 的 Flash 任务先构建 Debug，再烧录 Bootloader 和应用，保留配置。
