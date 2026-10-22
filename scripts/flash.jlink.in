@@ -1,5 +1,6 @@
 r
 h
+loadfile "@BOOTLOADER_ELF@"
 loadfile "@FLASH_ELF@"
 erase 0x0801F000 0x0801FFFF
 loadfile "@CMAKE_CURRENT_BINARY_DIR@/default_config.hex"

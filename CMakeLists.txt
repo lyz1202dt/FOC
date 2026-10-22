@@ -40,6 +40,14 @@ add_executable(${CMAKE_PROJECT_NAME})
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
 
+include(cmake/firmware_layout.cmake)
+configure_firmware(foc "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld"
+    ${APP_FLASH_ORIGIN} ${APP_FLASH_LENGTH})
+# SystemInit is compiled in STM32_Drivers, not in the foc executable target.
+target_compile_definitions(STM32_Drivers PRIVATE
+    USER_VECT_TAB_ADDRESS VECT_TAB_OFFSET=${APP_VECTOR_OFFSET})
+add_subdirectory(Bootloader)
+
 file(GLOB_RECURSE USER_CPP_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/BSP/*.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/LIB/*.cpp
@@ -120,10 +128,11 @@ if(JLINK_SERIAL)
     list(APPEND JLINK_SELECT_ARGS -USB "${JLINK_SERIAL}")
 endif()
 set(FLASH_ELF "${CMAKE_CURRENT_BINARY_DIR}/${CMAKE_PROJECT_NAME}.elf")
+set(BOOTLOADER_ELF "${CMAKE_CURRENT_BINARY_DIR}/bootloader.elf")
 configure_file(scripts/flash.jlink.in flash.jlink @ONLY)
 add_custom_target(flash
     COMMAND "${JLINK_EXECUTABLE}" -NoGui 1 -ExitOnError 1 -AutoConnect 1
         -device STM32G431CB -if SWD -speed 4000 ${JLINK_SELECT_ARGS}
         -CommanderScript "${CMAKE_CURRENT_BINARY_DIR}/flash.jlink"
-    DEPENDS ${CMAKE_PROJECT_NAME} default_config
+    DEPENDS ${CMAKE_PROJECT_NAME} bootloader default_config
     USES_TERMINAL VERBATIM)

@@ -57,7 +57,7 @@ MEMORY
 {
 RAM (xrw)      : ORIGIN = 0x20000000, LENGTH = 32K
 /* Last 4KB are reserved for Flash key-value storage. */
-FLASH (rx)      : ORIGIN = 0x8000000, LENGTH = 124K
+FLASH (rx)      : ORIGIN = FIRMWARE_FLASH_ORIGIN, LENGTH = FIRMWARE_FLASH_LENGTH
 }
 
 /* Highest address of the user mode stack */
