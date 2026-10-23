@@ -9,7 +9,7 @@
             "type": "cortex-debug",
             "gdbPath": "/usr/bin/gdb-multiarch",
             "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
-            "preLaunchTask": "Flash",
+            //"preLaunchTask": "Flash",
             "servertype": "openocd",
             "configFiles": [
                 "${workspaceFolder}/openocd.cfg"
@@ -19,7 +19,6 @@
             ],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "raw",
-            // Flash 任务已下载两个固件；此处只复位，避免重复下载。
             "overrideLaunchCommands": [
                 "monitor reset halt"
             ]
@@ -32,7 +31,7 @@
             "type": "cortex-debug",
             "gdbPath": "/usr/bin/gdb-multiarch",
             "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
-            "preLaunchTask": "Flash",
+            //"preLaunchTask": "Flash",
             "servertype": "openocd",
             "configFiles": [
                 "${workspaceFolder}/openocd.cfg"
@@ -42,7 +41,6 @@
             ],
             "runToEntryPoint": "main",
             "showDevDebugOutput": "raw",
-            // Flash 任务已下载两个固件；此处只复位，避免重复下载。
             "overrideLaunchCommands": [
                 "monitor reset halt"
             ]

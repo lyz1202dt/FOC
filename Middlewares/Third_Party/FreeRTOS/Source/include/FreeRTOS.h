@@ -399,7 +399,7 @@ hold explicit before calling the code. */
 #endif
 
 #ifndef configRECORD_STACK_HIGH_ADDRESS
-	#define configRECORD_STACK_HIGH_ADDRESS 1
+	#define configRECORD_STACK_HIGH_ADDRESS 0
 #endif
 
 #ifndef configINCLUDE_FREERTOS_TASK_C_ADDITIONS_H
@@ -807,7 +807,7 @@ hold explicit before calling the code. */
 #endif
 
 #ifndef configUSE_TRACE_FACILITY
-	#define configUSE_TRACE_FACILITY 1
+	#define configUSE_TRACE_FACILITY 0
 #endif
 
 #ifndef mtCOVERAGE_TEST_MARKER

@@ -1,40 +1,41 @@
 #include "boot_main.h"
+#include "stm32g4xx_hal.h"
+#include "stm32g4xx_hal_gpio.h"
+#include "stm32g4xx_hal_uart.h"
 
 static UART_HandleTypeDef huart3;
 static uint8_t buf;
 static volatile uint8_t start_update;
-static uint32_t start_recv_time;
 
 int main(void) {
 
     HAL_Init();
     SystemClock_Config();
     GPIO_Init();
+    HAL_Delay(5); // 电平稳定
+    if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9)) {
+        HAL_RCC_DeInit();
+        HAL_DeInit();
+        RunAPP();
+    }
     UART_Init();
     HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(USART3_IRQn);
 
-    // 记录时间戳，开始尝试接收，50ms接收不到就进入APP
-    start_recv_time = HAL_GetTick();
-    HAL_UART_Receive_IT(&huart3, &buf, 1);
-    while (start_update == 0 && (HAL_GetTick() - start_recv_time) <= 50) {
-        __NOP();
-    }
 
-    //TODO:开始执行接收程序
-    if(start_update)    //阻塞接收APP并写入Flash的APP区
-    {
-        //TODO:循环从串口接收数据并校验，校验失败请求重传，校验成功请求下一个
-    }
-
+    //TODO:接收固件逻辑
 
     HAL_UART_DeInit(&huart3);
     HAL_RCC_DeInit();
-    
+    HAL_DeInit();
+    RunAPP();
+}
+
+void RunAPP() {
     __disable_irq();
     SysTick->CTRL = 0;
     SysTick->LOAD = 0;
-    SysTick->VAL = 0;
+    SysTick->VAL  = 0;
     for (uint32_t i = 0; i < sizeof(NVIC->ICER) / sizeof(NVIC->ICER[0]); ++i) {
         NVIC->ICER[i] = 0xFFFFFFFFU;
         NVIC->ICPR[i] = 0xFFFFFFFFU;
@@ -45,8 +46,6 @@ int main(void) {
     __ISB();
     BootJumpToApp(BOOT_APP_ADDRESS);
 }
-
-
 
 
 void UART_Init(void) {
@@ -84,11 +83,15 @@ void GPIO_Init(void) {
     GPIO_InitStruct.Pull             = GPIO_NOPULL;
     GPIO_InitStruct.Speed            = GPIO_SPEED_FREQ_LOW;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-    GPIO_InitStruct.Pin  = GPIO_PIN_10;
-    GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
+    GPIO_InitStruct.Pin       = GPIO_PIN_10;
+    GPIO_InitStruct.Mode      = GPIO_MODE_AF_PP;
     GPIO_InitStruct.Alternate = GPIO_AF7_USART3;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-    GPIO_InitStruct.Pin  = GPIO_PIN_11;
+    GPIO_InitStruct.Pin = GPIO_PIN_11;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+    GPIO_InitStruct.Pin  = GPIO_PIN_9;  // BOOTLOADER选择引脚
+    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+    GPIO_InitStruct.Pull = GPIO_PULLUP; // 默认高电平，即默认跳转APP
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
@@ -100,7 +103,7 @@ void USART3_IRQHandler(void) {
     HAL_UART_IRQHandler(&huart3);
 }
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef* huart) {
     if (huart == &huart3) {
         start_update = 1;
     }
@@ -147,5 +150,4 @@ void Error_Handler(void) {
     __disable_irq();
     while (1) {
     }
-    
 }
