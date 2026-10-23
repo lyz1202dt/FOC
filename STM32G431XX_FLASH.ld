@@ -71,9 +71,9 @@ _Min_Stack_Size = 0x800; /* required amount of stack */
  * Each image must only program its own Flash partition. */
 PHDRS
 {
-  flash PT_LOAD FLAGS(5); /* Read + execute */
-  data PT_LOAD FLAGS(6);  /* Initialized RAM, loaded from Flash */
-  ram PT_LOAD FLAGS(6);   /* Zero-initialized RAM; no file payload */
+  flash PT_LOAD;
+  data PT_LOAD;
+  ram PT_LOAD;
 }
 
 /* Define output sections */
