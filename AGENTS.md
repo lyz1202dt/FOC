@@ -8,13 +8,30 @@
 - 命名遵循 Google 风格，格式遵循 `.clang-format`；已有接口以源码为准，禁止无关重命名。
 - 禁用 RTTI、异常及线程安全局部静态初始化；不得依赖这些能力。共享对象须明确初始化顺序。
 
-## 2. 实时与并发约束
+## 2. 构建
+
+- 构建依赖：CMake ≥ 3.22、Ninja、`arm-none-eabi-` GCC 工具链（加入 `PATH`）、Python3 及 PyYAML；配置阶段会检查 `import yaml`。预设使用 `cmake/gcc-arm-none-eabi.cmake`，Debug 为 `-Og -g3`，Release 为 `-Os -g0`。
+- 在仓库根目录先配置、再构建；将以下命令中的 `Debug` 同时替换为 `Release` 可构建发布版本：
+
+  ```bash
+  cmake --preset Debug
+  cmake --build --preset Debug
+  ```
+
+- 默认构建 `bootloader`、`foc` 和 `default_config`；可通过 `cmake --build --preset Debug --target foc`（或 `bootloader`、`default_config`）选择目标。`foc` 依赖 `default_config`，构建应用时也会生成默认配置镜像。
+- 产物位于 `build/Debug/` 或 `build/Release/`：`bootloader.{elf,bin,hex,map}`、`foc.{elf,bin,hex,map}` 以及 `default_config.{bin,hex,json}`；默认配置由 `scripts/generate_flash_config.py` 根据 `default_config.yaml` 生成，YAML 仅在主机端解析。构建目录同时生成 `compile_commands.json`。
+- 固件分区由 `cmake/firmware_layout.cmake` 统一定义：Bootloader 从 `0x08000000` 起占 24 KiB，应用从 `0x08006000` 起占 100 KiB，末尾 `0x0801F000` 起的 4 KiB 保留给配置。两个固件使用独立链接脚本；修改布局须同步核对链接脚本、应用向量表偏移和配置存储地址。
+- CMake 仅构建，不包含烧录目标；烧录由独立的 `scripts/flash.py` 执行且不会自动构建，使用方式见 `Bootloader/README.md`。
+- 顶层 CMake 递归收集 `BSP/`、`LIB/` 下的 `.cpp` / `.hpp`；`Task/app_main.cpp`、`Task/test.cpp` 显式列入源文件。新增 `Task/` 源文件须更新 `CMakeLists.txt`。
+- `Task/test.hpp` / `Task/test.cpp` 提供 AS5047P、AS5600、DRV8301 板测；
+
+## 3. 实时与并发约束
 
 - `Motor::fast_loop()`、ISR、外设完成回调必须短小、有界、非阻塞；禁止堆分配、格式化输出、阻塞总线操作、Flash 操作及长临界区。
 - ISR/线程共享数据须明确同步与所有权；`volatile` 不提供线程同步保证。临界区须恢复原中断屏蔽状态，不得无条件开中断。
 - 总线 `init()` 必须在任务上下文、首次传输前执行；Flash 操作仅限任务上下文。
 
-## 3. 启动与电机执行流
+## 4. 启动与电机执行流
 
 调度器启动后，`Core/Src/app_freertos.c::StartDefaultTask()` 调用 C ABI 入口 `Task/app_main.cpp::app_main()`。后者持有 `Flash`、容量为 2 的 `CommManager`、`UartComm` 和 `Motor`。
 
@@ -30,7 +47,7 @@
 | `Motor::slow_loop()` | 独立任务，每轮延时 50 ms | 状态反馈；`IDEL` 状态发送 `0x5A` 心跳 |
 | `Motor::handle_event()` | 默认任务 | 阻塞等待事件队列，处理使能、模式切换、参考值、配置读写/保存 |
 
-## 4. 外设与采样契约
+## 5. 外设与采样契约
 
 外设类型位于 `bsp` 命名空间，实例位于 `bsp::hardware`；应用可通过 `BSP` 别名及 `BSP::sensor_i2c_bus()` 等接口访问。SPI/I2C/UART/FDCAN 均沿用现有队列与 HAL 回调分发机制。
 
@@ -49,23 +66,10 @@
 - ADC 完成回调仅缓存原始值与时间戳至 `tools::Measure`（别名 `BSP::Measure`）。DRV8301 从缓存换算 B/C 相电流和母线电压，并按 `Ia = -(Ib + Ic)` 重建 A 相电流。
 - 编码器 `get_value()` 返回缓存角度，并按需发起异步请求；完成回调更新角度及时间戳，使用 `value_is_available()` 判断有效性。AS5600 总线恢复由独立任务执行。
 
-## 5. 核心模块
+## 6. 核心模块
 
 - `LIB/motor/`：`Motor` 管理控制环、事件和组件切换；`MotorDriver` 为驱动接口，`DRV8301` 实现寄存器通信、测量换算、校准及 PWM 输出控制。
 - `LIB/controller/`：`Controller` 接口；`IDEL` 零电压、`VOC` 电压开环测试、`FOC` 电流控制器。
 - `LIB/estimater/estimater.hpp`：估计器接口及默认角度透传实现。
 - `LIB/encoder/`：编码器基类、AS5600、AS5047P 及 ABI/Hall 实现。
 - `LIB/tools/`：Flash 键值存储、固定块内存池 `MemoryPoll`、环形缓冲区、测量缓存、PID、SVPWM。
-
-## 7. Flash 与链接布局
-
-- `Flash::init()` 在调度器启动后的任务中加载配置；`write_value()` / `write_raw()` 修改 RAM 副本，`fresh()` 持久化，`clear()` 擦除两页。禁止在 ISR 中调用。
-- `STM32G431XX_FLASH.ld`：程序占用 124 KiB Flash、32 KiB RAM；末尾 4 KiB（两页）用于键值存储。存储通过序号、校验及提交标记选择有效页。
-- 修改 Flash 布局时，必须同步核对链接脚本及 `Flash` 页地址计算。
-
-## 8. 构建与板测
-
-- 构建：`cmake --preset Debug` 或 `Release`，再执行 `cmake --build --preset Debug` 或对应配置的构建命令。
-- 顶层 CMake 递归收集 `BSP/`、`LIB/` 下的 `.cpp` / `.hpp`；`Task/app_main.cpp`、`Task/test.cpp` 显式列入源文件。新增 `Task/` 源文件须更新 `CMakeLists.txt`。
-- `Task/test.hpp` / `Task/test.cpp` 提供 AS5047P、AS5600、DRV8301 板测；通过 `TEST_AS5047P_ENABLED`、`TEST_AS5600_ENABLED`、`TEST_DRV8301_ENABLED` 控制编译。
-

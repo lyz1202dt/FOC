@@ -1,0 +1,51 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "OpenOCD Debug (FOC)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/foc.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "gdbPath": "/usr/bin/gdb-multiarch",
+            "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
+            "preLaunchTask": "Flash",
+            "servertype": "openocd",
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder}"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw",
+            // Flash 任务已下载两个固件；此处只复位，避免重复下载。
+            "overrideLaunchCommands": [
+                "monitor reset halt"
+            ]
+        },
+        {
+            "name": "OpenOCD Debug (Bootloader)",
+            "cwd": "${workspaceFolder}",
+            "executable": "${workspaceFolder}/build/Debug/bootloader.elf",
+            "request": "launch",
+            "type": "cortex-debug",
+            "gdbPath": "/usr/bin/gdb-multiarch",
+            "objdumpPath": "/usr/bin/arm-none-eabi-objdump",
+            "preLaunchTask": "Flash",
+            "servertype": "openocd",
+            "configFiles": [
+                "${workspaceFolder}/openocd.cfg"
+            ],
+            "searchDir": [
+                "${workspaceFolder}"
+            ],
+            "runToEntryPoint": "main",
+            "showDevDebugOutput": "raw",
+            // Flash 任务已下载两个固件；此处只复位，避免重复下载。
+            "overrideLaunchCommands": [
+                "monitor reset halt"
+            ]
+        }
+    ]
+}

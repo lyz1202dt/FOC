@@ -66,6 +66,15 @@ _sstack = _estack - _Min_Stack_Size;
 _Min_Heap_Size = 0x600;      /* required amount of heap  */
 _Min_Stack_Size = 0x800; /* required amount of stack */
 
+/* Explicit segments exclude ELF headers and alignment padding from Flash loads.
+ * Each image must only program its own Flash partition. */
+PHDRS
+{
+  flash PT_LOAD FLAGS(5); /* Read + execute */
+  data PT_LOAD FLAGS(6);  /* Initialized RAM, loaded from Flash */
+  ram PT_LOAD FLAGS(6);   /* Zero-initialized RAM; no file payload */
+}
+
 /* Define output sections */
 SECTIONS
 {
@@ -75,7 +84,7 @@ SECTIONS
     . = ALIGN(4);
     KEEP(*(.isr_vector)) /* Startup code */
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   /* The program code and other data goes into FLASH */
   .text :
@@ -92,7 +101,7 @@ SECTIONS
 
     . = ALIGN(4);
     _etext = .;        /* define a global symbols at end of code */
-  } >FLASH
+  } >FLASH :flash
 
   /* Constant data goes into FLASH */
   .rodata :
@@ -101,14 +110,14 @@ SECTIONS
     *(.rodata)         /* .rodata sections (constants, strings, etc.) */
     *(.rodata*)        /* .rodata* sections (constants, strings, etc.) */
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   .ARM.extab (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
     . = ALIGN(4);
     *(.ARM.extab* .gnu.linkonce.armextab.*)
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   .ARM (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
@@ -117,7 +126,7 @@ SECTIONS
     *(.ARM.exidx*)
     __exidx_end = .;
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   .preinit_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
@@ -126,7 +135,7 @@ SECTIONS
     KEEP (*(.preinit_array*))
     PROVIDE_HIDDEN (__preinit_array_end = .);
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   .init_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
@@ -136,7 +145,7 @@ SECTIONS
     KEEP (*(.init_array*))
     PROVIDE_HIDDEN (__init_array_end = .);
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   .fini_array (READONLY) : /* The "READONLY" keyword is only supported in GCC11 and later, remove it if using GCC10 or earlier. */
   {
@@ -146,7 +155,7 @@ SECTIONS
     KEEP (*(.fini_array*))
     PROVIDE_HIDDEN (__fini_array_end = .);
     . = ALIGN(4);
-  } >FLASH
+  } >FLASH :flash
 
   /* used by the startup to initialize data */
   _sidata = LOADADDR(.data);
@@ -162,7 +171,7 @@ SECTIONS
     *(.RamFunc*)       /* .RamFunc* sections */
 
     . = ALIGN(4);
-  } >RAM AT> FLASH
+  } >RAM AT> FLASH :data
 
  /* Initialized TLS data section */
   .tdata : ALIGN(4)
@@ -172,7 +181,7 @@ SECTIONS
     _edata = .;        /* define a global symbol at data end */
     PROVIDE(__data_end = .);
     PROVIDE(__tdata_end = .);
-  } >RAM AT> FLASH
+  } >RAM AT> FLASH :data
 
   PROVIDE( __tdata_start = ADDR(.tdata) );
   PROVIDE( __tdata_size = __tdata_end - __tdata_start );
@@ -196,7 +205,7 @@ SECTIONS
     *(.tbss .tbss.*)
     . = ALIGN(4);
     PROVIDE( __tbss_end = . );
-  } >RAM
+  } >RAM AT> RAM :ram
 
   PROVIDE( __tbss_start = ADDR(.tbss) );
   PROVIDE( __tbss_size = __tbss_end - __tbss_start );
@@ -220,7 +229,7 @@ SECTIONS
     _ebss = .;         /* define a global symbol at bss end */
     __bss_end__ = _ebss;
       PROVIDE( __bss_end = .);
-  } >RAM
+  } >RAM AT> RAM :ram
   PROVIDE( __non_tls_bss_start = ADDR(.bss) );
 
   PROVIDE( __bss_start = __tbss_start );
@@ -235,7 +244,7 @@ SECTIONS
     . = . + _Min_Heap_Size;
     . = . + _Min_Stack_Size;
     . = ALIGN(8);
-  } >RAM
+  } >RAM AT> RAM :ram
 
 
 

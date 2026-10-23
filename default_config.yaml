@@ -10,3 +10,4 @@ config:
     pid:
       ki: ["float32",0.1]
       kd: ["float32",0.1]
+      limit: ["float32",100.0]

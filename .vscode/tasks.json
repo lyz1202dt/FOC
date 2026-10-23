@@ -1,0 +1,31 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Construct",
+            "type": "shell",
+            "command": "cmake --preset Debug",
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            }
+        },
+        {
+            "label": "Build",
+            "type": "shell",
+            "command": "cmake --build --preset Debug",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "Construct"
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "python3 scripts/flash.py --preset Debug --image bootloader app",
+            "dependsOn": "Build",
+            "problemMatcher": []
+        }
+    ]
+}
