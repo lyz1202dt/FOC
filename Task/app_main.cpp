@@ -56,10 +56,17 @@ extern "C" void app_main(void* param) {
         {
             vTaskDelay(pdMS_TO_TICKS(1000));
         }
-        return;
     }
     //创建状态更新环路
     xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, motor, 1, &motor_slow_loop_task_handle);
+
+
+    //Debug 自动启动PWM输出
+    int32_t auto_enable=0;
+    flash.read_value("setup/auto", auto_enable);
+    if(auto_enable)
+        motor->enable(true);
+
     //创建事件处理环路
     while (1) {
         motor->handle_event(); // 阻塞等待并处理电机事件
@@ -89,7 +96,8 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     switch (driver_type) {
     case 0:
         driver = new DRV8301(
-            flash, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+            flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), BSP::adc_measure(),
+            BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
             BSP::drv8301_dc_cal());
         break;
     default: driver = nullptr; break;

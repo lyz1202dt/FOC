@@ -2,7 +2,6 @@
 
 #include <atomic>
 #include <cstdint>
-#include <string>
 
 #include "driver.hpp"
 #include "gpio.hpp"
@@ -40,7 +39,7 @@ public:
         uint16_t status2{0};
     };
 
-    DRV8301(Flash& flash, BSP::SPIBus& spi, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
+    DRV8301(Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
     bool config(float requested_gain, float* actual_gain = nullptr);
@@ -56,7 +55,9 @@ public:
 
     bool self_check() override;
 
+    // 寄存器操作仅限任务上下文；并发请求或在途传输未完成时返回失败。
     FaultType_e get_error();
+    void update_error() override;
     bool read_status(StatusRegisters& status);
     bool clear_faults();
 
@@ -77,6 +78,7 @@ private:
         Uninitialized,
         StartupChecks,
         Ready,
+        Fault,
     };
 
     struct RegisterFile {
@@ -88,22 +90,26 @@ private:
 
     bool read_reg(RegName_e reg_name, uint16_t& data);
     bool write_reg(RegName_e reg_name, uint16_t data);
-    bool transfer_word(uint16_t tx_word, uint16_t* rx_word);
+    bool transfer_register(uint16_t command, uint16_t* response);
     float phase_current_from_adc(uint16_t raw, uint16_t offset) const;
 
-    BSP::SPIBus& spi_;
+    bsp::SpiBus& spi_;
+    BSP::Gpio& cs_;
     BSP::SVPWM& svpwm_;
     BSP::Measure& measure_;
     BSP::Gpio& enable_gate_;
     BSP::Gpio& fault_;
     BSP::Gpio& dc_cal_;
     RegisterFile regs_{};
-    State state_{State::Uninitialized};
+    std::atomic<State> state_{State::Uninitialized};
     float current_gain_{20.0f};
     uint16_t current_offsets_[2]{2048U, 2048U};
-    uint32_t last_fault_{FaultType_NoFault};
+    bsp::SpiTransferEvent transfer_{};
     uint8_t tx_buf_[2]{};
     uint8_t rx_buf_[2]{};
+    // register_busy_ 串行化整个寄存器事务；transfer_pending_ 保护异步缓冲区至回调结束。
+    std::atomic<bool> register_busy_{false};
+    std::atomic<bool> transfer_pending_{false};
+    bsp::SpiTransferStatus transfer_status_{bsp::SpiTransferStatus::Ok};
     bool measure_started_{false};
-    std::atomic<bool> current_calibrated_{false};
 };

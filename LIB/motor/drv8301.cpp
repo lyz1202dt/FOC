@@ -1,12 +1,9 @@
 #include "drv8301.hpp"
 
-#include "gpio.hpp"
 #include "hardware.hpp"
-#include "measure.hpp"
-#include "spi.hpp"
 #include "svpwm.hpp"
 
-#include "stm32g4xx_hal.h"
+#include "task.h"
 
 namespace {
 
@@ -14,15 +11,11 @@ constexpr uint32_t kSampleFreshnessUs      = 10000U;
 constexpr uint32_t kSpiTimeoutMs           = 10U;
 constexpr float kAdcReferenceVolts         = 3.3f;
 constexpr float kAdcFullScale              = 4096.0f;
-constexpr float kCurrentSenseMinVolt       = 0.3f;
-constexpr float kCurrentSenseMaxVolt       = 3.0f;
-constexpr float kCurrentSenseMaxSwingVolts = 1.35f;
-constexpr float kDefaultCurrentGain        = 20.0f;
+constexpr float kDefaultCurrentGain       = 20.0f;
 constexpr float kShuntResistanceOhms       = 0.001f;
-constexpr float kVbusDividerRatio          = 11.0f; // R5=20K, R9=2K on SCH_Schematic1_2026-08-16.pdf.
+constexpr float kVbusDividerRatio         = 11.0f; // R5=20K, R9=2K on SCH_Schematic1_2026-08-16.pdf.
 
-constexpr uint16_t kCurrentAdcLowerBound = static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMinVolt / kAdcReferenceVolts);
-constexpr uint16_t kCurrentAdcUpperBound = static_cast<uint16_t>(kAdcFullScale * kCurrentSenseMaxVolt / kAdcReferenceVolts);
+static_assert(std::atomic<bool>::is_always_lock_free);
 
 void delay_us(uint32_t us) {
     if (us == 0U) {
@@ -38,15 +31,35 @@ void delay_us(uint32_t us) {
 } // namespace
 
 DRV8301::DRV8301(
-    Flash& flash, BSP::SPIBus& spi, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure, BSP::Gpio& enable_gate, BSP::Gpio& fault,
-    BSP::Gpio& dc_cal)
+    Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
+    BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal)
     : MotorDriver(flash)
     , spi_(spi)
+    , cs_(cs)
     , svpwm_(svpwm)
     , measure_(phase_current_measure)
     , enable_gate_(enable_gate)
     , fault_(fault)
     , dc_cal_(dc_cal) {
+    transfer_.mode = bsp::SpiTransferMode::Interrupt;
+    transfer_.tx_data = tx_buf_;
+    transfer_.rx_data = rx_buf_;
+    // HAL size counts hardware data units, not bytes. Keep these byte buffers
+    // in 8-bit mode even when the bus is redirected to a 16-bit SPI instance.
+    // DRV8301 samples on falling SCK edges (CPOL=0, CPHA=1 / SPI mode 1).
+    transfer_.hardware.data_size = SPI_DATASIZE_8BIT;
+    transfer_.hardware.clk_phase = SPI_PHASE_2EDGE;
+    transfer_.size = sizeof(tx_buf_);
+    transfer_.context = this;
+    transfer_.before_cb = [](bsp::SpiTransferEvent& event) {
+        static_cast<DRV8301*>(event.context)->cs_.write(false);
+    };
+    transfer_.after_cb = [](bsp::SpiTransferEvent& event) {
+        auto* self = static_cast<DRV8301*>(event.context);
+        self->cs_.write(true);
+        self->transfer_status_ = event.status;
+        self->transfer_pending_.store(false, std::memory_order_release);
+    };
     config(kDefaultCurrentGain);
 }
 
@@ -81,8 +94,7 @@ bool DRV8301::config(float requested_gain, float* actual_gain) {
 
     if (regs_changed && state_ == State::Ready) {
         svpwm_.enable_output(false);
-        current_calibrated_ = false;
-        state_              = State::Uninitialized;
+        state_ = State::Uninitialized;
         svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
         enable_gate_.write(false);
     }
@@ -91,6 +103,10 @@ bool DRV8301::config(float requested_gain, float* actual_gain) {
 }
 
 bool DRV8301::init() {
+    if (__get_IPSR() != 0U || !spi_.valid() ||
+        transfer_pending_.load(std::memory_order_acquire)) {
+        return false;
+    }
     if (state_ == State::Ready) {
         return true;
     }
@@ -99,14 +115,12 @@ bool DRV8301::init() {
         return false;
     }
     svpwm_.enable_output(false);
-    current_calibrated_ = false;
-    state_              = State::Uninitialized;
-    last_fault_         = FaultType_NoFault;
+    state_ = State::Uninitialized;
     svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
     dc_cal_.write(false);
     enable_gate_.write(false);
     // 上电及寄存器通信前保持校准关闭、片选空闲。
-    BSP::ic_spi_cs().write(true);
+    cs_.write(true);
 
     delay_us(40);                  // DRV8301 reset low time is only tens of us.
     enable_gate_.write(true);
@@ -120,7 +134,6 @@ bool DRV8301::init() {
 
     if (!wrote_regs) {
         enable_gate_.write(false);
-        last_fault_ = FaultType_SPI;
         return false;
     }
 
@@ -133,35 +146,33 @@ bool DRV8301::init() {
     if (!regs_verified) {
         state_ = State::Uninitialized;
         enable_gate_.write(false);
-        last_fault_ = FaultType_SPI;
         return false;
     }
 
     FaultType_e fault = get_error();
     if (fault != FaultType_NoFault) {
         svpwm_.enable_output(false);
-        current_calibrated_ = false;
-        state_              = State::Uninitialized;
+        state_ = State::Uninitialized;
         svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
-        last_fault_ = fault;
         return false;
     }
 
     if (!fault_.read()) {
         svpwm_.enable_output(false);
-        current_calibrated_ = false;
-        state_              = State::Uninitialized;
+        state_ = State::Uninitialized;
         svpwm_.set_voltage(24.0f, 0.0f, 0.0f, 0.0f);
-        last_fault_ = FaultType_FAULT;
         return false;
     }
 
-    state_      = State::Ready;
-    last_fault_ = FaultType_NoFault;
+    state_ = State::Ready;
     return true;
 }
 
 bool DRV8301::enable_pwm(bool enable) {
+    if (enable && !is_ready()) {
+        svpwm_.enable_output(false);
+        return false;
+    }
     svpwm_.set_voltage(0.0f, 0.0f, 0.0f, 0.0f);
     svpwm_.enable_output(enable);
     return true;
@@ -172,13 +183,11 @@ bool DRV8301::enable_measure(bool enable) {
         if (measure_started_) {
             return true;
         }
-        current_calibrated_ = false;
         if (!BSP::adc_measure_start()) {
             return false;
         }
         measure_started_ = true;
     } else {
-        current_calibrated_ = false;
         if (!measure_started_) {
             return true;
         }
@@ -191,79 +200,14 @@ bool DRV8301::enable_measure(bool enable) {
 }
 
 bool DRV8301::is_ready() {
+    if (state_ == State::Ready && !fault_.read()) {
+        // ISR 中立即关闭功率输出；不要等待任务读取 SPI 或仅停止更新占空比。
+        svpwm_.enable_output(false);
+        // nFault 为低有效；电平恢复后也不自动恢复 Ready。
+        state_ = State::Fault;
+    }
     return state_ == State::Ready;
 }
-
-// int DRV8301::lookup_reason(std::string& reason) {
-//     reason.clear();
-
-//     FaultType_e fault = static_cast<FaultType_e>(last_fault_);
-//     if (fault == FaultType_NoFault && state_ == State::Ready) {
-//         fault = get_error();
-//     }
-//     if (fault == FaultType_NoFault && state_ == State::Ready && !fault_.read()) {
-//         fault = FaultType_FAULT;
-//     }
-
-//     if (fault == FaultType_NoFault) {
-//         if (state_ != State::Ready) {
-//             reason = "DRV8301 not initialized";
-//             return -1;
-//         }
-
-//         reason = "OK";
-//         return 0;
-//     }
-
-//     if (fault & FaultType_SPI) {
-//         append_reason(reason, "SPI communication failed");
-//     }
-//     if (fault & FaultType_FETLC_OC) {
-//         append_reason(reason, "phase C low-side over-current");
-//     }
-//     if (fault & FaultType_FETHC_OC) {
-//         append_reason(reason, "phase C high-side over-current");
-//     }
-//     if (fault & FaultType_FETLB_OC) {
-//         append_reason(reason, "phase B low-side over-current");
-//     }
-//     if (fault & FaultType_FETHB_OC) {
-//         append_reason(reason, "phase B high-side over-current");
-//     }
-//     if (fault & FaultType_FETLA_OC) {
-//         append_reason(reason, "phase A low-side over-current");
-//     }
-//     if (fault & FaultType_FETHA_OC) {
-//         append_reason(reason, "phase A high-side over-current");
-//     }
-//     if (fault & FaultType_OTW) {
-//         append_reason(reason, "over-temperature warning");
-//     }
-//     if (fault & FaultType_OTSD) {
-//         append_reason(reason, "over-temperature shutdown");
-//     }
-//     if (fault & FaultType_PVDD_UV) {
-//         append_reason(reason, "PVDD under-voltage");
-//     }
-//     if (fault & FaultType_GVDD_UV) {
-//         append_reason(reason, "GVDD under-voltage");
-//     }
-//     if (fault & FaultType_GVDD_OV) {
-//         append_reason(reason, "GVDD over-voltage");
-//     }
-//     if (fault & FaultType_CurrentSenseSaturation) {
-//         append_reason(reason, "current sense saturation");
-//     }
-//     if (fault & FaultType_FAULT) {
-//         append_reason(reason, "nFAULT asserted");
-//     }
-
-//     if (reason.empty()) {
-//         reason = "unknown DRV8301 fault";
-//     }
-
-//     return -2;
-// }
 
 bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
     if (!is_ready()) {
@@ -319,8 +263,12 @@ DRV8301::FaultType_e DRV8301::get_error() {
 
     uint32_t fault = static_cast<uint32_t>(status.status1);
     fault |= (static_cast<uint32_t>(status.status2 & 0x0080U) << 16);
-    last_fault_ = fault;
     return static_cast<FaultType_e>(fault);
+}
+
+void DRV8301::update_error() {
+    // 复用 SPI 队列读取两个状态寄存器；失败时缓存 FaultType_SPI。
+    error_ = static_cast<uint32_t>(get_error());
 }
 
 bool DRV8301::read_status(StatusRegisters& status) {
@@ -329,17 +277,12 @@ bool DRV8301::read_status(StatusRegisters& status) {
 
 bool DRV8301::clear_faults() {
     const uint16_t gate_reset = static_cast<uint16_t>(regs_.control_register_1 | (1U << 2));
-    bool ok                   = write_reg(kRegNameControl1, gate_reset) && write_reg(kRegNameControl1, regs_.control_register_1);
-    if (ok) {
-        last_fault_ = FaultType_NoFault;
-    }
-    return ok;
+    return write_reg(kRegNameControl1, gate_reset) && write_reg(kRegNameControl1, regs_.control_register_1);
 }
 
 
 bool DRV8301::self_check() {
     svpwm_.enable_output(false);
-    current_calibrated_ = false;
     if (!measure_started_ || !is_ready()) {
         return false;
     }
@@ -376,8 +319,7 @@ bool DRV8301::self_check() {
 
     current_offsets_[0] = static_cast<uint16_t>(sum_b / count);
     current_offsets_[1] = static_cast<uint16_t>(sum_c / count);
-    current_calibrated_ = count == samples;
-    return current_calibrated_;
+    return count == samples;
 }
 
 uint16_t DRV8301::build_ctrl_word(CtrlMode_e ctrl_mode, RegName_e reg_name, uint16_t data) {
@@ -385,56 +327,59 @@ uint16_t DRV8301::build_ctrl_word(CtrlMode_e ctrl_mode, RegName_e reg_name, uint
 }
 
 bool DRV8301::read_reg(RegName_e reg_name, uint16_t& data) {
-    const uint16_t command = build_ctrl_word(DRV8301_CtrlMode_Read, reg_name, 0U);
-    uint16_t ignored       = 0U;
-    if (!transfer_word(command, &ignored)) {
-        return false;
-    }
-
-    delay_us(1);
-
-    uint16_t response = 0U;
-    if (!transfer_word(command, &response)) {
-        return false;
-    }
-
-    delay_us(1);
-
-    data = static_cast<uint16_t>(response & 0x07FFU);
-    return true;
+    return transfer_register(build_ctrl_word(DRV8301_CtrlMode_Read, reg_name, 0U), &data);
 }
 
 bool DRV8301::write_reg(RegName_e reg_name, uint16_t data) {
-    const uint16_t command = build_ctrl_word(DRV8301_CtrlMode_Write, reg_name, data);
-    if (!transfer_word(command, nullptr)) {
-        return false;
-    }
-
-    delay_us(1);
-    return true;
+    return transfer_register(build_ctrl_word(DRV8301_CtrlMode_Write, reg_name, data), nullptr);
 }
 
-bool DRV8301::transfer_word(uint16_t tx_word, uint16_t* rx_word) {
-    tx_buf_[0] = static_cast<uint8_t>((tx_word >> 8) & 0xFFU);
-    tx_buf_[1] = static_cast<uint8_t>(tx_word & 0xFFU);
-    rx_buf_[0] = 0U;
-    rx_buf_[1] = 0U;
-
-    if (spi_.native() == nullptr) {
+bool DRV8301::transfer_register(uint16_t command, uint16_t* response) {
+    if (__get_IPSR() != 0U || !spi_.valid()) {
+        return false;
+    }
+    bool expected = false;
+    if (!register_busy_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         return false;
     }
 
-    BSP::ic_spi_cs().write(false);
-    const HAL_StatusTypeDef status = HAL_SPI_TransmitReceive(spi_.native(), tx_buf_, rx_buf_, sizeof(tx_buf_), kSpiTimeoutMs);
-    BSP::ic_spi_cs().write(true);
-    if (status != HAL_OK) {
-        return false;
+    bool ok = !transfer_pending_.load(std::memory_order_acquire);
+    // 读取需要两个独立 CS 帧；第二帧接收前一条读命令的响应。
+    const unsigned frame_count = response != nullptr ? 2U : 1U;
+    for (unsigned frame = 0U; ok && frame < frame_count; ++frame) {
+        tx_buf_[0] = static_cast<uint8_t>(command >> 8);
+        tx_buf_[1] = static_cast<uint8_t>(command);
+        transfer_pending_.store(true, std::memory_order_release);
+        if (!spi_.transfer(transfer_)) {
+            transfer_pending_.store(false, std::memory_order_release);
+            ok = false;
+            break;
+        }
+
+        const TickType_t start = xTaskGetTickCount();
+        const TickType_t timeout = pdMS_TO_TICKS(kSpiTimeoutMs) + 1U;
+        while (transfer_pending_.load(std::memory_order_acquire)) {
+            if (static_cast<TickType_t>(xTaskGetTickCount() - start) >= timeout) {
+                // 队列仍可能持有传输：保留 pending 和成员缓冲区，禁止提前复用。
+                ok = false;
+                break;
+            }
+            vTaskDelay(1U);
+        }
+        if (ok) {
+            ok = transfer_status_ == bsp::SpiTransferStatus::Ok;
+        }
+        if (ok) {
+            delay_us(1U);  // 满足两次 CS 帧之间的高电平间隔。
+        }
     }
 
-    if (rx_word) {
-        *rx_word = static_cast<uint16_t>((static_cast<uint16_t>(rx_buf_[0]) << 8) | rx_buf_[1]);
+    if (ok && response != nullptr) {
+        *response = static_cast<uint16_t>(((static_cast<uint16_t>(rx_buf_[0]) << 8) |
+                                          rx_buf_[1]) & 0x07FFU);
     }
-    return true;
+    register_busy_.store(false, std::memory_order_release);
+    return ok;
 }
 
 float DRV8301::phase_current_from_adc(uint16_t raw, uint16_t offset) const {

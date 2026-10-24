@@ -193,12 +193,12 @@ bool SpiBus::startNextTransfer(bool from_isr, BaseType_t* higher_priority_task_w
     }
 
     active_event_.status = SpiTransferStatus::Busy;
-    if (active_event_.before_cb != nullptr) {
-        active_event_.before_cb(active_event_);
-    }
-
     HAL_StatusTypeDef status = applyHardwareParams(active_event_);
     if (status == HAL_OK) {
+        // Reconfiguration can toggle SCK. Finish it before asserting chip select.
+        if (active_event_.before_cb != nullptr) {
+            active_event_.before_cb(active_event_);
+        }
         status = startHalTransfer(active_event_);
     }
     if (status != HAL_OK) {

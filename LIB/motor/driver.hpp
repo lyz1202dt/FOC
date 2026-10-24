@@ -33,7 +33,9 @@ public:
     virtual bool set_phrase_voltage(float v1, float v2, float v3) {    // 输出生成相电压
         return false;
     }
-    uint32_t error_;
+    // 仅限任务上下文：读取并缓存驱动器故障类型，允许等待总线传输。
+    virtual void update_error() {}
+    uint32_t error_{0U};
 protected:
     Flash &flash;
 };

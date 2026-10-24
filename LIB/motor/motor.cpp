@@ -5,6 +5,7 @@
 #include "foc.hpp"
 #include "idel.hpp"
 #include "pack.h"
+#include "portmacro.h"
 #include "projdefs.h"
 #include "voc.hpp"
 #include <cstring>
@@ -103,7 +104,7 @@ bool Motor::init() {
         return false;
     }
 
-    if (!sensorless_mode_ && !encoder_->init()) {
+    if (!encoder_->init()) {
         core_error_ = 0x05;
         return false;
     }
@@ -143,6 +144,17 @@ bool Motor::fast_loop() {
         return true;
     }
     
+    // 驱动器在此轮询故障 GPIO；ISR 中不读取 SPI 状态寄存器。
+    if (!driver_->is_ready()) {
+        enable_motor_ = false;
+        driver_->enable_pwm(false);
+        last_voltage_[0] = last_voltage_[1] = last_voltage_[2] = 0.0f;
+        state = next_state = State::ERROR;
+        core_error_ = 0x20;
+        notify_error(core_error_);
+        return false;
+    }
+
     if (next_estimater_ && next_estimater_ != estimater_) {
         estimater_ = next_estimater_;
     }
@@ -151,12 +163,6 @@ bool Motor::fast_loop() {
         controller_->reset();
     }
     state = next_state;
-
-    if (!driver_->is_ready()) {           // 驱动器不可用，退出
-        core_error_ = 0x20;
-        notify_error(core_error_);
-        return false;
-    }
 
     float dcbus_vol;
     float current[3];
@@ -179,7 +185,7 @@ bool Motor::fast_loop() {
     float estimatered_omega = 0.0f;
     bool success = estimater_->update();
     success = estimater_->get_value(estimatered_rad, estimatered_omega) && success;
-    if (!sensorless_mode_) { // 有感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
+    if (!sensorless_mode_) { // 无感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
         if (!success) {
             stop_output();
             return false;
@@ -323,7 +329,14 @@ bool Motor::handle_event() {
         next_controller_ = controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
         controller_->reset();
         next_state = state = State::ERROR;
+        bsp::hardware::led.write(true);
         __set_PRIMASK(interrupt_mask);
+
+        // 在任务上下文且恢复中断后发起 SPI 传输，完成回调依赖中断。
+        // 只读取故障类型，不清除硬件故障或恢复功率输出。
+        if (driver_ != nullptr) {
+            driver_->update_error();
+        }
     }
     memory_poll_.release_blob(command);
     return true;
@@ -338,6 +351,21 @@ bool Motor::slow_loop() {
         // TODO:指示FOC正常运转
     } else if (state == State::IDEL) {
         // 发送心跳包指示设备就绪
+
+
+        //Debug：立即切到电压开环测试
+        // 队列保存指针，命令由内存池持有，消费完成后由 handle_event() 释放。
+        Command* command = static_cast<Command*>(memory_poll_.require_blob());
+        if (command != nullptr) {
+            command->cmd = 0x03;
+            command->size = 0;
+            if (xQueueSend(event_queue_, &command, pdMS_TO_TICKS(10)) != pdTRUE) {
+                memory_poll_.release_blob(command);
+                return false;
+            }
+        } else {
+            return false;
+        }
         
     } else if (state == TEST) {
         // TODO:电压开环测试状态
@@ -373,7 +401,10 @@ bool Motor::on_command(Command* data) // 注意：位于ISR上下文
         return false;
     memcpy(cmd_block, data, size);
     BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
-    xQueueSendFromISR(event_queue_, &cmd_block, &pxHigherPriorityTaskWoken);
+    if (xQueueSendFromISR(event_queue_, &cmd_block, &pxHigherPriorityTaskWoken) != pdTRUE) {
+        memory_poll_.release_blob(cmd_block);
+        return false;
+    }
     portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
     return true;
 }

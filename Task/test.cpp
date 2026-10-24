@@ -120,7 +120,8 @@ Drv8301TestResult drv8301_sample_result;
     test_flash.init();
 
     static DRV8301 driver(
-        test_flash, BSP::ic_spi_bus(), BSP::tim1_svpwm(), BSP::adc_measure(), BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
+        test_flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), BSP::adc_measure(),
+        BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
         BSP::drv8301_dc_cal());
     do {
         drv8301_sample_result.stage = "SpiInit";

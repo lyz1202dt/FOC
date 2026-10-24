@@ -11,3 +11,5 @@ config:
       ki: ["float32",0.1]
       kd: ["float32",0.1]
       limit: ["float32",100.0]
+  setup:
+    auto: ["int32",1]

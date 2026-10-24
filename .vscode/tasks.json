@@ -23,7 +23,7 @@
         {
             "label": "Flash",
             "type": "shell",
-            "command": "python3 scripts/flash.py --preset Debug --image bootloader app",
+            "command": "python3 scripts/flash.py --preset Debug --image all",
             "dependsOn": "Build",
             "problemMatcher": []
         }
