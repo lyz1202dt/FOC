@@ -126,15 +126,41 @@ bool Motor::init() {
     svpwm_.register_timer_update_cb([this]() {
         fast_loop();
     });
-    if (!driver_->enable_measure(true)) { // 开始ADC测量
-        core_error_ = 0x07;
-        return false;
-    }
     svpwm_.enable_timer(true);            // 启动定时器，触发ADC采样
     if (!driver_->self_check()) {         // 自检，校准电流采样
         core_error_ = 0x0B;
         return false;
     }
+
+    int32_t auto_send_freq = 0;
+    flash_.read_value("comm/auto_send_freq", auto_send_freq);
+    if (auto_send_freq > 0) {
+        // 周期向上取整到 tick，至少一个 tick；0 或负值禁用主动发送。
+        const uint32_t frequency = static_cast<uint32_t>(auto_send_freq);
+        const TickType_t period = static_cast<TickType_t>(
+            (static_cast<uint32_t>(configTICK_RATE_HZ) + frequency - 1U) / frequency);
+        auto_send_timer_ = xTimerCreate(
+            "motor_auto_send", period, pdTRUE, this,
+            [](TimerHandle_t timer) {
+                auto* motor = static_cast<Motor*>(pvTimerGetTimerID(timer));
+                Command command{.cmd = 0x06, .size = 0};
+                // 定时器服务任务只投递事件；队列或内存池满时丢弃本次上报。
+                motor->on_command(&command);
+            });
+        if (auto_send_timer_ == nullptr) {
+            core_error_ = 0x0C;
+            return false;
+        }
+        if (xTimerStart(auto_send_timer_, 0) != pdPASS) {
+            // init 位于任务上下文，允许等待删除命令入队。
+            if (xTimerDelete(auto_send_timer_, portMAX_DELAY) == pdPASS) {
+                auto_send_timer_ = nullptr;
+            }
+            core_error_ = 0x0D;
+            return false;
+        }
+    }
+
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
     motor_is_ready_ = true;
@@ -442,7 +468,7 @@ bool Motor::notify_error(uint8_t error) {
     return on_command(&command);
 }
 
-bool Motor::on_command(Command* data) // 注意：位于ISR上下文
+bool Motor::on_command(Command* data) // 支持通信 ISR 和软件定时器任务上下文。
 {
     if (data == nullptr || data->size > 32U - sizeof(Command)) {
         return false;
@@ -452,11 +478,16 @@ bool Motor::on_command(Command* data) // 注意：位于ISR上下文
     if (cmd_block == nullptr)         // 内存池空间不足，直接退出
         return false;
     memcpy(cmd_block, data, size);
-    BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
-    if (xQueueSendFromISR(event_queue_, &cmd_block, &pxHigherPriorityTaskWoken) != pdTRUE) {
+    if (__get_IPSR() != 0U) {
+        BaseType_t pxHigherPriorityTaskWoken = pdFALSE;
+        if (xQueueSendFromISR(event_queue_, &cmd_block, &pxHigherPriorityTaskWoken) != pdTRUE) {
+            memory_poll_.release_blob(cmd_block);
+            return false;
+        }
+        portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
+    } else if (xQueueSend(event_queue_, &cmd_block, 0) != pdTRUE) {
         memory_poll_.release_blob(cmd_block);
         return false;
     }
-    portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
     return true;
 }

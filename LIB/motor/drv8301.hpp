@@ -3,9 +3,10 @@
 #include <atomic>
 #include <cstdint>
 
+#include "adc.hpp"
 #include "driver.hpp"
 #include "gpio.hpp"
-#include "measure.hpp"
+#include "samplegroup.hpp"
 #include "spi.hpp"
 
 namespace BSP {
@@ -39,14 +40,13 @@ public:
         uint16_t status2{0};
     };
 
-    DRV8301(Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
+    DRV8301(Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, bsp::AdcChannel& adc,
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
     bool config(float requested_gain, float* actual_gain = nullptr);
-    // 配置芯片和 PWM 外设，保持功率输出关闭；不启动测量。
+    // 配置芯片和 PWM 外设并启动 ADC 注入组，保持功率输出关闭；TIM1 由调用方启动。
     bool init() override;
     bool enable_pwm(bool enable) override;
-    bool enable_measure(bool enable) override;
     bool is_ready() override;
 
     bool get_vbus_voltage(float& vol) override;
@@ -62,6 +62,13 @@ public:
     bool clear_faults();
 
 private:
+    enum AdcSampleIndex {
+        kPhaseB,
+        kPhaseC,
+        kVbus,
+        kAdcSampleCount,
+    };
+
     enum CtrlMode_e : uint16_t {
         DRV8301_CtrlMode_Read = (1U << 15),
         DRV8301_CtrlMode_Write = (0U << 15),
@@ -88,6 +95,7 @@ private:
 
     static uint16_t build_ctrl_word(CtrlMode_e ctrl_mode, RegName_e reg_name, uint16_t data);
 
+    bool start_adc_sampling();
     bool read_reg(RegName_e reg_name, uint16_t& data);
     bool write_reg(RegName_e reg_name, uint16_t data);
     bool transfer_register(uint16_t command, uint16_t* response);
@@ -96,14 +104,16 @@ private:
     bsp::SpiBus& spi_;
     BSP::Gpio& cs_;
     BSP::SVPWM& svpwm_;
-    BSP::Measure& measure_;
+    bsp::AdcChannel& adc_;
+    SampleGroup<uint16_t, kAdcSampleCount> adc_samples_;
+    float current_gain_{20.0f};
+    uint16_t current_offsets_[2]{2048U, 2048U};
+
     BSP::Gpio& enable_gate_;
     BSP::Gpio& fault_;
     BSP::Gpio& dc_cal_;
     RegisterFile regs_{};
     std::atomic<State> state_{State::Uninitialized};
-    float current_gain_{20.0f};
-    uint16_t current_offsets_[2]{2048U, 2048U};
     bsp::SpiTransferEvent transfer_{};
     uint8_t tx_buf_[2]{};
     uint8_t rx_buf_[2]{};
@@ -111,5 +121,5 @@ private:
     std::atomic<bool> register_busy_{false};
     std::atomic<bool> transfer_pending_{false};
     bsp::SpiTransferStatus transfer_status_{bsp::SpiTransferStatus::Ok};
-    bool measure_started_{false};
+    bool adc_started_{false};
 };

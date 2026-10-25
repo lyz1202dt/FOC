@@ -6,6 +6,7 @@
 #include "estimater.hpp"
 #include "flash.hpp"
 #include "queue.h"
+#include "timers.h"
 #include <cstdint>
 #include "comm.hpp"
 #include "memorypoll.hpp"
@@ -63,6 +64,7 @@ private:
     tools::MemoryPoll memory_poll_;
     bool init_started_{false};
     QueueHandle_t event_queue_{nullptr};
+    TimerHandle_t auto_send_timer_{nullptr};
 
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};
     bool enable_motor_{false};

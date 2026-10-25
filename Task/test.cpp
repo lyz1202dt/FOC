@@ -120,7 +120,7 @@ Drv8301TestResult drv8301_sample_result;
     test_flash.init();
 
     static DRV8301 driver(
-        test_flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), BSP::adc_measure(),
+        test_flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), bsp::hardware::adc1,
         BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
         BSP::drv8301_dc_cal());
     do {
@@ -138,11 +138,7 @@ Drv8301TestResult drv8301_sample_result;
             break;
         }
 
-        drv8301_sample_result.stage = "MeasureStart";
-        if (!driver.enable_measure(true)) {
-            drv8301_sample_result.reason = "ADC/TIM1 sampling start failed";
-            break;
-        }
+        BSP::tim1_svpwm().enable_timer(true);
 
         // 关闭 PWM 输出，保留 TIM1 运行以触发 ADC 采样。
         driver.enable_pwm(false);
@@ -194,7 +190,7 @@ Drv8301TestResult drv8301_sample_result;
 
         if (!drv8301_sample_result.passed) {
             driver.enable_pwm(false);
-            driver.enable_measure(false);
+            BSP::tim1_svpwm().enable_timer(false);
             BSP::drv8301_dc_cal().write(false);
         }
         // 通过：每 500ms 翻转 LED；失败：每 100ms 翻转 LED。

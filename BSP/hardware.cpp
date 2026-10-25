@@ -45,7 +45,6 @@ namespace BSP {
 
 namespace {
 SVPWM g_tim1_svpwm(bsp::hardware::tim1, bsp::hardware::tim1_ch3, bsp::hardware::tim1_ch2, bsp::hardware::tim1_ch1);
-Measure g_adc_measure;
 
 volatile uint32_t g_timer_update_cnt = 0U;
 }
@@ -78,44 +77,6 @@ FdcanBus& fdcan1_bus()
 SVPWM& tim1_svpwm()
 {
     return g_tim1_svpwm;
-}
-
-Measure& adc_measure()
-{
-    return g_adc_measure;
-}
-
-bool adc_measure_start()
-{
-    if (__get_IPSR() != 0U ||
-        HAL_ADCEx_Calibration_Start(bsp::hardware::adc1.native(), ADC_SINGLE_ENDED) != HAL_OK) {
-        return false;
-    }
-    g_adc_measure.reset();
-    return bsp::hardware::adc1.injectedStartIt([]() {
-        const uint64_t now = BSP::get_time_us();
-        g_adc_measure.set_raw_adc_value(
-            Measure::PhraseB,
-            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_1)),
-            now);
-        g_adc_measure.set_raw_adc_value(
-            Measure::PhraseC,
-            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_2)),
-            now);
-        g_adc_measure.set_raw_adc_value(
-            Measure::DCBusVol,
-            static_cast<uint16_t>(bsp::hardware::adc1.injectedValue(ADC_INJECTED_RANK_3)),
-            now);
-    }) == HAL_OK;
-}
-
-bool adc_measure_stop()
-{
-    if (bsp::hardware::adc1.injectedStopIt() != HAL_OK) {
-        return false;
-    }
-    g_adc_measure.reset();
-    return true;
 }
 
 Gpio& ic_spi_cs()

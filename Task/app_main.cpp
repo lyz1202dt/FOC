@@ -90,7 +90,7 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     switch (driver_type) {
     case 0:
         driver = new DRV8301(
-            flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), BSP::adc_measure(),
+            flash, BSP::ic_spi_bus(), BSP::ic_spi_cs(), BSP::tim1_svpwm(), bsp::hardware::adc1,
             BSP::drv8301_enable_gate(), BSP::drv8301_fault(),
             BSP::drv8301_dc_cal());
         break;

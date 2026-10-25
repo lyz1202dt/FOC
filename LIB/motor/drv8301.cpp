@@ -31,13 +31,13 @@ void delay_us(uint32_t us) {
 } // namespace
 
 DRV8301::DRV8301(
-    Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, BSP::Measure& phase_current_measure,
+    Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, bsp::AdcChannel& adc,
     BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal)
     : MotorDriver(flash)
     , spi_(spi)
     , cs_(cs)
     , svpwm_(svpwm)
-    , measure_(phase_current_measure)
+    , adc_(adc)
     , enable_gate_(enable_gate)
     , fault_(fault)
     , dc_cal_(dc_cal) {
@@ -164,6 +164,12 @@ bool DRV8301::init() {
         return false;
     }
 
+    if (!start_adc_sampling()) {
+        state_ = State::Uninitialized;
+        enable_gate_.write(false);
+        return false;
+    }
+
     state_ = State::Ready;
     return true;
 }
@@ -178,25 +184,23 @@ bool DRV8301::enable_pwm(bool enable) {
     return true;
 }
 
-bool DRV8301::enable_measure(bool enable) {
-    if (enable) {
-        if (measure_started_) {
-            return true;
-        }
-        if (!BSP::adc_measure_start()) {
-            return false;
-        }
-        measure_started_ = true;
-    } else {
-        if (!measure_started_) {
-            return true;
-        }
-        if (!BSP::adc_measure_stop()) {
-            return false;
-        }
-        measure_started_ = false;
+bool DRV8301::start_adc_sampling() {
+    if (__get_IPSR() != 0U || adc_.native() == nullptr) {
+        return false;
     }
-    return true;
+    if (adc_started_) {
+        return true;
+    }
+    if (HAL_ADCEx_Calibration_Start(adc_.native(), ADC_SINGLE_ENDED) != HAL_OK) {
+        return false;
+    }
+    adc_started_ = adc_.injectedStartIt([this]() {
+        const uint64_t now = BSP::get_time_us();
+        adc_samples_.save(kPhaseB, static_cast<uint16_t>(adc_.injectedValue(ADC_INJECTED_RANK_1)), now);
+        adc_samples_.save(kPhaseC, static_cast<uint16_t>(adc_.injectedValue(ADC_INJECTED_RANK_2)), now);
+        adc_samples_.save(kVbus, static_cast<uint16_t>(adc_.injectedValue(ADC_INJECTED_RANK_3)), now);
+    }) == HAL_OK;
+    return adc_started_;
 }
 
 bool DRV8301::is_ready() {
@@ -214,11 +218,12 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
         return false;
     }
 
-    uint16_t raw_b     = 0U;
-    uint16_t raw_c     = 0U;
-    const uint64_t now = BSP::get_time_us();
-    if (!measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs, now)
-        || !measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs, now)) {
+    uint16_t raw_b        = 0U;
+    uint16_t raw_c        = 0U;
+    const uint64_t tick_b = adc_samples_.get(kPhaseB, raw_b);
+    const uint64_t tick_c = adc_samples_.get(kPhaseC, raw_c);
+    const uint64_t now    = BSP::get_time_us();
+    if (tick_b == 0U || tick_c == 0U || now - tick_b > kSampleFreshnessUs || now - tick_c > kSampleFreshnessUs) {
         return false;
     }
 
@@ -229,8 +234,9 @@ bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
 }
 
 bool DRV8301::get_vbus_voltage(float& vol) {
-    uint16_t raw_vbus = 0U;
-    if (!measure_.get_raw_adc_value(BSP::Measure::DCBusVol, raw_vbus, kSampleFreshnessUs, BSP::get_time_us())) {
+    uint16_t raw_vbus    = 0U;
+    const uint64_t tick = adc_samples_.get(kVbus, raw_vbus);
+    if (tick == 0U || BSP::get_time_us() - tick > kSampleFreshnessUs) {
         return false;
     }
 
@@ -283,32 +289,32 @@ bool DRV8301::clear_faults() {
 
 bool DRV8301::self_check() {
     svpwm_.enable_output(false);
-    if (!measure_started_ || !is_ready()) {
+    if (!adc_started_ || !is_ready()) {
         return false;
     }
     constexpr uint64_t kTimeoutUs = 20000U;
-    constexpr int samples         = 30;
+    constexpr int samples         = 100;
 
 
     uint32_t sum_b          = 0U;
     uint32_t sum_c          = 0U;
     uint32_t count          = 0U;
-    const uint64_t start_us = BSP::get_time_us();
 
     dc_cal_.write(true);
     delay_us(100);
 
-    while (count < samples && BSP::get_time_us() - start_us < kTimeoutUs) {
-        uint16_t raw_b     = 0U;
-        uint16_t raw_c     = 0U;
-        const uint64_t now = BSP::get_time_us();
-        if (measure_.get_raw_adc_value(BSP::Measure::PhraseB, raw_b, kSampleFreshnessUs, now)
-            && measure_.get_raw_adc_value(BSP::Measure::PhraseC, raw_c, kSampleFreshnessUs, now)) {
+    while (count < samples) {
+        uint16_t raw_b        = 0U;
+        uint16_t raw_c        = 0U;
+        const uint64_t tick_b = adc_samples_.get(kPhaseB, raw_b);
+        const uint64_t tick_c = adc_samples_.get(kPhaseC, raw_c);
+        const uint64_t now    = BSP::get_time_us();
+        if (tick_b != 0U && tick_c != 0U && now - tick_b <= kSampleFreshnessUs && now - tick_c <= kSampleFreshnessUs) {
             sum_b += raw_b;
             sum_c += raw_c;
             ++count;
         }
-        delay_us(100);
+        delay_us(500);
     }
 
     dc_cal_.write(false);

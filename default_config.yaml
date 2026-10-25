@@ -14,3 +14,5 @@ config:
   setup:
     auto: ["int32",1]
     encoder_calib: ["int32",1]
+  comm:
+    auto_send_freq: ["int32",1000]   #每秒主动发送1000次机器人状态

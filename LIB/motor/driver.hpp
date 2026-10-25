@@ -20,9 +20,6 @@ public:
     virtual bool enable_pwm(bool enable){
         return false;
     };
-    virtual bool enable_measure(bool enable){
-        return false;
-    };
     virtual bool get_vbus_voltage(float& vol) {                        // 获取总线电压
         vol = 24.0f;
         return true;

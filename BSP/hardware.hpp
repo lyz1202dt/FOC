@@ -6,7 +6,6 @@
 #include "fdcan.hpp"
 #include "gpio.hpp"
 #include "i2c.hpp"
-#include "measure.hpp"
 #include "spi.hpp"
 #include "svpwm.hpp"
 #include "tim.hpp"
@@ -42,9 +41,6 @@ SPIBus& sensor_spi_bus();
 UartPort& uart_comm_port();
 FdcanBus& fdcan1_bus();
 SVPWM& tim1_svpwm();
-Measure& adc_measure();
-bool adc_measure_start();
-bool adc_measure_stop();
 Gpio& ic_spi_cs();
 Gpio& sensor_spi_cs();
 Gpio& drv8301_enable_gate();
