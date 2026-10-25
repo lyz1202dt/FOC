@@ -7,7 +7,11 @@
 - `Core/`、`Drivers/`、`Middlewares/` 为生成代码或依赖；修改前须询问用户确认。
 - 命名遵循 Google 风格，格式遵循 `.clang-format`；已有接口以源码为准，禁止无关重命名。
 - 禁用 RTTI、异常及线程安全局部静态初始化；不得依赖这些能力。共享对象须明确初始化顺序。
-
+- `Motor::fast_loop()`、ISR、外设完成回调必须短小、有界、非阻塞；禁止堆分配、格式化输出、阻塞总线操作、Flash 操作及长临界区。
+- ISR/线程共享数据须明确同步与所有权；`volatile` 不提供线程同步保证。临界区须恢复原中断屏蔽状态，不得无条件开中断。
+- 总线 `init()` 必须在任务上下文、首次传输前执行；Flash 操作仅限任务上下文。
+- `Motor::handle_event()` ，只能是函数最从队列开始死等消息，消息一定接收成功，成功后下面开始分支判断。如果需要触发执行，在 `Motor::slow_loop` 中各自状态机中手动触发。
+- 避免添加大量的短小的类成员函数，除非一个同类长逻辑在多处被使用，否则其它情况需要向用户请示。
 ## 2. 构建
 
 - 构建依赖：CMake ≥ 3.22、Ninja、`arm-none-eabi-` GCC 工具链（加入 `PATH`）、Python3 及 PyYAML；配置阶段会检查 `import yaml`。预设使用 `cmake/gcc-arm-none-eabi.cmake`，Debug 为 `-Og -g3`，Release 为 `-Os -g0`。
@@ -20,17 +24,10 @@
 
 - 默认构建 `bootloader`、`foc` 和 `default_config`；可通过 `cmake --build --preset Debug --target foc`（或 `bootloader`、`default_config`）选择目标。`foc` 依赖 `default_config`，构建应用时也会生成默认配置镜像。
 - 产物位于 `build/Debug/` 或 `build/Release/`：`bootloader.{elf,bin,hex,map}`、`foc.{elf,bin,hex,map}` 以及 `default_config.{bin,hex,json}`；默认配置由 `scripts/generate_flash_config.py` 根据 `default_config.yaml` 生成，YAML 仅在主机端解析。构建目录同时生成 `compile_commands.json`。
-- 固件分区由 `cmake/firmware_layout.cmake` 统一定义：Bootloader 从 `0x08000000` 起占 24 KiB，应用从 `0x08006000` 起占 100 KiB，末尾 `0x0801F000` 起的 4 KiB 保留给配置。两个固件使用独立链接脚本；修改布局须同步核对链接脚本、应用向量表偏移和配置存储地址。
-- CMake 仅构建，不包含烧录目标；烧录由独立的 `scripts/flash.py` 执行且不会自动构建，使用方式见 `Bootloader/README.md`。
-- 顶层 CMake 递归收集 `BSP/`、`LIB/` 下的 `.cpp` / `.hpp`；`Task/app_main.cpp`、`Task/test.cpp` 显式列入源文件。新增 `Task/` 源文件须更新 `CMakeLists.txt`。
+- 固件分区由 `cmake/firmware_layout.cmake` 统一定义，如果必须修改布局，请示用户。
+- 执行 `scripts/flash.py` 烧录程序到单片机，具体使用方法见 `Bootloader/README.md`。
+- 顶层 CMake 递归收集 `BSP/`、`LIB/` 下的 `.cpp` / `.hpp`；新增 `Task/` 源文件须更新 `CMakeLists.txt`。
 - `Task/test.hpp` / `Task/test.cpp` 提供 AS5047P、AS5600、DRV8301 板测；
-
-## 3. 实时与并发约束
-
-- `Motor::fast_loop()`、ISR、外设完成回调必须短小、有界、非阻塞；禁止堆分配、格式化输出、阻塞总线操作、Flash 操作及长临界区。
-- ISR/线程共享数据须明确同步与所有权；`volatile` 不提供线程同步保证。临界区须恢复原中断屏蔽状态，不得无条件开中断。
-- 总线 `init()` 必须在任务上下文、首次传输前执行；Flash 操作仅限任务上下文。
-- `Motor::handle_event()` ，只能是函数最开始死等消息，消息一定接收成功，成功后下面开始分支判断。如果需要触发执行，在slow_loop中各自状态机中手动触发。
 
 ## 4. 电机执行流
 

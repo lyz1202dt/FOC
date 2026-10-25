@@ -9,7 +9,7 @@ public:
     VOC(Flash& flash);
     ~VOC() = default;
     // 仅限任务上下文，在请求切入 TEST 前读取配置。
-    bool load_config();
+    void load_config();
     void set_measure(
         const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) override;
     void reset() override;

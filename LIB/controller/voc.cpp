@@ -7,20 +7,17 @@ VOC::VOC(Flash& flash)
     : Controller(flash) {
 }
 
-bool VOC::load_config() {
+void VOC::load_config() {
     int32_t pole_pairs      = 0;
     float mechanical_offset = 0.0f;
-    if (!flash.read_value("foc/n", pole_pairs) || !flash.read_value("foc/offset", mechanical_offset) || pole_pairs <= 0
-        || !std::isfinite(mechanical_offset)) {
-        return false;
-    }
+    flash.read_value("foc/n", pole_pairs);
+    flash.read_value("foc/offset", mechanical_offset);
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
     n              = pole_pairs;
     offset         = mechanical_offset;
     config_loaded_ = true;
     __set_PRIMASK(interrupt_mask);
-    return true;
 }
 
 void VOC::reset() {

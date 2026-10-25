@@ -71,7 +71,7 @@ void motor_slow_loop(void* param) {
     Motor* motor=static_cast<Motor*>(param);
     while (1) {
         motor->slow_loop();
-        vTaskDelay(pdMS_TO_TICKS(50));
+        vTaskDelay(pdMS_TO_TICKS(5));
     }
 }
 

@@ -23,7 +23,7 @@ public:
     bool enable(bool enable);  //是否开启功率输出
     bool fast_loop();  //在PWM更新中断中调用
     bool slow_loop();   //慢循环，维护状态更新，心跳保活包等
-    bool handle_event();    //处理事件（在线程上下文执行）
+    bool handle_event();    //处理事件（在线程上下文阻塞等待命令）
 
     Flash& flash_;             //闪存控制器，读写配置文件
     CommManager& comm_manager_; //命令输出和状态反馈
@@ -37,7 +37,7 @@ public:
     bool sensorless_mode_{false};   //控制器运行模式
 
     enum ControllerType{
-        CONTROLLER_IDEL,                  //测试模式
+        CONTROLLER_IDEL,                //空闲模式
         CONTROLLER_FOC,                 //FOC运行模式
         CONTROLLER_MOTOR_CALIB,         //电机校准模式
         CONTROLLER_ENCODER_CALIB,       //编码器校准模式
@@ -50,6 +50,7 @@ public:
         TEST,
         FOC,
         INIT,
+        MEASURE,
         ERROR
     };
 
@@ -57,20 +58,11 @@ private:
     bool on_command(Command* data);
     bool notify_error(uint8_t error);
     void stop_output();
-    bool request_controller(ControllerType type, State requested_state);
-    bool queue_init_event();
-    bool handle_init();
-    bool finish_init();
-    bool fail_init();
-
-    static constexpr uint32_t kInitEvent = 0x100U;
 
     BSP::SVPWM& svpwm_;
     tools::MemoryPoll memory_poll_;
     bool init_started_{false};
     QueueHandle_t event_queue_{nullptr};
-    bool init_event_pending_{false}; // 通过临界区在慢循环任务与事件任务间同步。
-    bool encoder_calib_started_{false}; // 仅事件任务访问。
 
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};
     bool enable_motor_{false};

@@ -8,7 +8,7 @@ public:
     explicit FOC(Flash &flash);
     virtual ~FOC() = default;
     // 仅限任务上下文，在请求切入 FOC 前读取最新极对数与机械零位。
-    bool load_config();
+    void load_config();
     void set_measure(
         const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) override;
     void reset() override;

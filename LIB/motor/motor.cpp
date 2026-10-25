@@ -1,7 +1,7 @@
 #include "motor.hpp"
 #include "comm.hpp"
-#include "estimater.hpp"
 #include "encoder_calib.hpp"
+#include "estimater.hpp"
 #include "flash.hpp"
 #include "foc.hpp"
 #include "idel.hpp"
@@ -60,7 +60,7 @@ bool Motor::init() {
         return false;
     }
 
-    for (int i = 0; i < comm_manager_.comm_num(); i++) { // 为所有信道来源注册命令接收回调
+    for (int i = 0; i < comm_manager_.comm_num(); i++) {       // 为所有信道来源注册命令接收回调
         if (!comm_manager_.register_recv_callback(
                 [this](Command* data) {
                     on_command(data);
@@ -71,25 +71,25 @@ bool Motor::init() {
         }
     }
 
-    if (driver_ == nullptr) {                            // 未装配有效的驱动器
+    if (driver_ == nullptr) {                                  // 未装配有效的驱动器
         core_error_ = 0x01;
         return false;
     }
 
-    if (encoder_ == nullptr) {                           // 未装配有效的编码器
+    if (encoder_ == nullptr) {                                 // 未装配有效的编码器
         core_error_ = 0x02;
         return false;
     }
 
     int estimater_type = 0;
-    flash_.read_value("components/estimater", estimater_type);      // 加载配置指定的Estimater
-    switch (estimater_type) {                            // 根据配置的编码器读取数据
-    case 0:                                              // 默认估计器
+    flash_.read_value("components/estimater", estimater_type); // 加载配置指定的Estimater
+    switch (estimater_type) {                                  // 根据配置的编码器读取数据
+    case 0:                                                    // 默认估计器
         estimater_ = new Estimater(flash_);
         break;
     default: estimater_ = nullptr;
     }
-    if (estimater_ == nullptr) {                         // Estimater类构造失败，进入ERROR状态
+    if (estimater_ == nullptr) {                               // Estimater类构造失败，进入ERROR状态
         core_error_ = 0x03;
         return false;
     }
@@ -100,7 +100,7 @@ bool Motor::init() {
     controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
     controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
     controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = new EncoderCalib(flash_);
-    // INIT 启动阶段先保持 IDEL 输出，慢循环投递事件后选择校准或目标控制器。
+    // INIT 先保持 IDEL 且关闭输出，由慢循环请求校准或目标控制器。
     controller_ = next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
     next_estimater_                = estimater_;
 
@@ -135,7 +135,10 @@ bool Motor::init() {
         core_error_ = 0x0B;
         return false;
     }
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
     motor_is_ready_ = true;
+    __set_PRIMASK(interrupt_mask);
     return true;
 }
 
@@ -144,18 +147,15 @@ bool Motor::fast_loop() {
         return false;
 
     if (!motor_is_ready_) {
-        // core_error_ = 0x10;
-        // notify_error(core_error_);
         return true;
     }
-    
+
     // 驱动器在此轮询故障 GPIO；ISR 中不读取 SPI 状态寄存器。
     if (!driver_->is_ready()) {
         enable_motor_ = false;
         driver_->enable_pwm(false);
         last_voltage_[0] = last_voltage_[1] = last_voltage_[2] = 0.0f;
-        state = next_state = State::ERROR;
-        core_error_ = 0x20;
+        core_error_                                            = 0x20;
         notify_error(core_error_);
         return false;
     }
@@ -167,7 +167,6 @@ bool Motor::fast_loop() {
         controller_ = next_controller_;
         controller_->reset();
     }
-    state = next_state;
 
     float dcbus_vol;
     float current[3];
@@ -177,27 +176,27 @@ bool Motor::fast_loop() {
         return false;
     }
 
-    float encoder_rad = 0.0f;
+    float encoder_rad            = 0.0f;
     const bool encoder_available = encoder_->get_value(encoder_rad, 2000U);
     estimater_->set_raw_rad(encoder_rad, encoder_available);
     // 估计器输入
-    if (sensorless_mode_) {  // 无感模式还要输入电压和电流
+    if (sensorless_mode_) {   // 无感模式还要输入电压和电流
         estimater_->set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);
         estimater_->set_raw_cur(current[0], current[1], current[2]);
     }
 
-    float estimatered_rad = 0.0f;
+    float estimatered_rad   = 0.0f;
     float estimatered_omega = 0.0f;
-    bool success = estimater_->update();
-    success = estimater_->get_value(estimatered_rad, estimatered_omega) && success;
-    if (!sensorless_mode_) { // 无感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
+    bool success            = estimater_->update();
+    success                 = estimater_->get_value(estimatered_rad, estimatered_omega) && success;
+    if (!sensorless_mode_) {  // 无感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
         if (!success) {
             stop_output();
             return false;
         }
     }
 
-    if (!enable_motor_) // 未使能电机，正常退出，不执行控制
+    if (!enable_motor_)       // 未使能电机，正常退出，不执行控制
     {
         stop_output();
         return true;
@@ -233,152 +232,63 @@ void Motor::stop_output() {
     last_voltage_[2] = 0.0f;
 }
 
-bool Motor::request_controller(ControllerType type, State requested_state) {
-    if (type < ControllerType::CONTROLLER_IDEL || type >= ControllerType::CONTROLLER_NUM || controllers_[type] == nullptr) {
-        return false;
-    }
-    // Flash 的读取可能阻塞，只能在任务上下文、发布控制器切换前完成。
-    if (type == ControllerType::CONTROLLER_TEST && !static_cast<VOC*>(controllers_[type])->load_config()) {
-        return false;
-    }
-    if (type == ControllerType::CONTROLLER_FOC && !static_cast<class FOC*>(controllers_[type])->load_config()) {
-        return false;
-    }
-    const uint32_t interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    next_controller_ = controllers_[type];
-    next_state = requested_state;
-    __set_PRIMASK(interrupt_mask);
-    return true;
-}
-
-bool Motor::queue_init_event() {
-    uint32_t interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    if (init_event_pending_ || state != State::INIT || next_state != State::INIT || core_error_ != 0U) {
-        __set_PRIMASK(interrupt_mask);
-        return true;
-    }
-    init_event_pending_ = true;
-    __set_PRIMASK(interrupt_mask);
-
-    Command* command = static_cast<Command*>(memory_poll_.require_blob());
-    if (command != nullptr) {
-        command->cmd = kInitEvent;
-        command->size = 0U;
-        if (xQueueSend(event_queue_, &command, 0U) == pdTRUE) {
-            return true;
-        }
-        memory_poll_.release_blob(command);
-    }
-    interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    init_event_pending_ = false;
-    __set_PRIMASK(interrupt_mask);
-    return false;
-}
-
-bool Motor::fail_init() {
-    enable(false);
-    const uint32_t interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
-    state = next_state = State::ERROR;
-    core_error_ = 0x0C;
-    __set_PRIMASK(interrupt_mask);
-    return false;
-}
-
-bool Motor::finish_init() {
-    enable(false);
-    int32_t auto_enable = 0;
-    flash_.read_value("setup/auto", auto_enable);
-    const ControllerType type = auto_enable != 0 ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL;
-    const State target_state = auto_enable != 0 ? State::TEST : State::IDEL;
-    if (!request_controller(type, target_state) || (auto_enable != 0 && !enable(true))) {
-        return fail_init();
-    }
-    return true;
-}
-
-bool Motor::handle_init() {
-    const uint32_t interrupt_mask = __get_PRIMASK();
-    __disable_irq();
-    const bool initializing = state == State::INIT && next_state == State::INIT && core_error_ == 0U;
-    __set_PRIMASK(interrupt_mask);
-    if (!initializing) {
-        return true;
-    }
-    if (!encoder_calib_started_) {
-        int32_t encoder_calib = 0;
-        flash_.read_value("setup/encoder_calib", encoder_calib);
-        if (encoder_calib != 1) {
-            return finish_init();
-        }
-        if (!request_controller(ControllerType::CONTROLLER_ENCODER_CALIB, State::INIT) || !enable(true)) {
-            return fail_init();
-        }
-        encoder_calib_started_ = true;
-        return true;
-    }
-
-    float offset = 0.0f;
-    auto* calib = static_cast<EncoderCalib*>(controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]);
-    if (!calib->get_offset(offset)) {
-        return true;
-    }
-    enable(false);
-    // write_value 仅更新 RAM，校准流程不调用 fresh() 写入非易失 Flash。
-    if (!flash_.write_value("foc/offset", offset)) {
-        return fail_init();
-    }
-    return finish_init();
-}
-
 bool Motor::handle_event() {
     Command* command = nullptr;
     xQueueReceive(event_queue_, &command, portMAX_DELAY);
     uint32_t cmd = command->cmd;
     bool success = true;
-    if (cmd == kInitEvent) {
-        success = handle_init();
-        const uint32_t interrupt_mask = __get_PRIMASK();
-        __disable_irq();
-        init_event_pending_ = false;
-        __set_PRIMASK(interrupt_mask);
-    } else if (cmd == 0x01)          // 启动/停止控制输出fast_loop
+    if (cmd == 0x01)          // 启动/停止控制输出fast_loop
     {
         enable(command->data[0] ? true : false);
     } else if (cmd == 0x02)   // 请求切入IDEL模式
     {
-        success = request_controller(ControllerType::CONTROLLER_IDEL, State::IDEL);
+        Controller* controller        = controllers_[ControllerType::CONTROLLER_IDEL];
+        const uint32_t interrupt_mask = __get_PRIMASK();
+        __disable_irq();
+        next_controller_ = controller;
+        next_state       = State::IDEL;
+        __set_PRIMASK(interrupt_mask);
     } else if (cmd == 0x03)   // 请求切入开环测试
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            success = request_controller(ControllerType::CONTROLLER_TEST, State::TEST);
+            Controller* controller = controllers_[ControllerType::CONTROLLER_TEST];
+            // Flash 配置在任务上下文读取，随后发布控制器切换。
+            static_cast<VOC*>(controller)->load_config();
+            const uint32_t interrupt_mask = __get_PRIMASK();
+            __disable_irq();
+            next_controller_ = controller;
+            next_state       = State::TEST;
+            __set_PRIMASK(interrupt_mask);
         }
     } else if (cmd == 0x04)   // 请求切入FOC闭环
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            success = request_controller(ControllerType::CONTROLLER_FOC, State::FOC);
+            Controller* controller = controllers_[ControllerType::CONTROLLER_FOC];
+            // Flash 配置在任务上下文读取，随后发布控制器切换。
+            static_cast<class FOC*>(controller)->load_config();
+            const uint32_t interrupt_mask = __get_PRIMASK();
+            __disable_irq();
+            next_controller_ = controller;
+            next_state       = State::FOC;
+            __set_PRIMASK(interrupt_mask);
         }
-    } else if (cmd == 0x05)   // 设置FOC参考力矩电流
+    } else if (cmd == 0x05)               // 设置FOC参考力矩电流
     {
         controllers_[ControllerType::CONTROLLER_FOC]->controller_reference(command->data, sizeof(float));
-    } else if (cmd == 0x06)   // 请求获取电机状态
+    } else if (cmd == 0x06)               // 请求获取电机状态
     {
-        uint8_t send_buffer[sizeof(Command)+sizeof(MotorStatus)];
-        Command* pack=(Command*)send_buffer;
-        pack->cmd=0x16;
-        pack->size=sizeof(MotorStatus);
-        MotorStatus* payload=(MotorStatus*)pack->data;
+        uint8_t send_buffer[sizeof(Command) + sizeof(MotorStatus)];
+        Command* pack        = (Command*)send_buffer;
+        pack->cmd            = 0x16;
+        pack->size           = sizeof(MotorStatus);
+        MotorStatus* payload = (MotorStatus*)pack->data;
         controllers_[ControllerType::CONTROLLER_FOC]->controller_status(&(payload->current), sizeof(float));
         estimater_->get_value(payload->position, payload->velocity);
-        payload->status=0;  //TODO:填写状态/错误码
-        comm_manager_.send_pack(pack, 0);   //默认反馈到0通道
-    } else if (cmd == 0x07) // 设置参数值(存储的格式为:size(uint8_t)|c_str|data)
+        payload->status = 0;              // TODO:填写状态/错误码
+        comm_manager_.send_pack(pack, 0); // 默认反馈到0通道
+    } else if (cmd == 0x07)               // 设置参数值(存储的格式为:size(uint8_t)|c_str|data)
     {
         constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);
         if (command->size < 4U || command->size > kMaxPayloadSize) {
@@ -397,7 +307,7 @@ bool Motor::handle_event() {
             memory_poll_.release_blob(command);
             return false;
         }
-    } else if (cmd == 0x08) // 请求参数值,向所有通道发送一次参数的值
+    } else if (cmd == 0x08)               // 请求参数值,向所有通道发送一次参数的值
     {
         constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);
         if (command->size < 3U || command->size > kMaxPayloadSize) {
@@ -426,16 +336,16 @@ bool Motor::handle_event() {
         }
         memory_poll_.release_blob(command);
         return sent;
-    } else if (cmd == 0x09) // 保存参数值到flash中
+    } else if (cmd == 0x09)               // 保存参数值到flash中
     {
         if (!flash_.fresh()) {
             memory_poll_.release_blob(command);
             return false;
         }
-    } else if (cmd == 0x0A) // 清除错误信息
+    } else if (cmd == 0x0A)               // 清除错误信息
     {
         core_error_ = 0;
-    } else if (cmd == 0xFF) // 驱动器错误
+    } else if (cmd == 0xFF)               // 驱动器错误
     {
         const uint32_t interrupt_mask = __get_PRIMASK();
         __disable_irq();
@@ -455,36 +365,74 @@ bool Motor::handle_event() {
     return success;
 }
 
-// LED指示，按键扫描
+// 启动状态机及状态反馈；仅由慢循环任务调用。
 bool Motor::slow_loop() {
-    if (state == State::INIT) {
-        // handle_event 始终阻塞收消息；上电推进与校准完成检查由此主动触发。
-        if (!queue_init_event()) {
-            return false;
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    const State current_state   = state;
+    __set_PRIMASK(interrupt_mask);
+
+    if (current_state == State::INIT) {
+        int32_t calibrate = 1;
+        flash_.read_value("setup/encoder_calib", calibrate);
+        if (calibrate) {
+            __disable_irq();
+            enable(true);
+            next_controller_ = controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
+            next_state       = State::MEASURE;
+            __set_PRIMASK(interrupt_mask);
+        } else {
+            // 跳过校准，直接按启动配置选择目标状态。
+            int32_t auto_start = 0;
+            flash_.read_value("setup/auto", auto_start);
+            static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC])->load_config();
+            if (auto_start) {
+                static_cast<VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+            }
+            __disable_irq();
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::TEST : State::IDEL;
+            enable(auto_start != 0);
+            __set_PRIMASK(interrupt_mask);
         }
-    } else if (state == State::ERROR) {
-
+    } else if (current_state == State::MEASURE) {
+        auto* calib  = static_cast<EncoderCalib*>(controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]);
+        float offset = 0.0f;
+        if (calib->get_offset(offset)) {
+            enable(false);
+            flash_.write_value("foc/offset", offset);
+            int32_t auto_start = 0;
+            flash_.read_value("setup/auto", auto_start);
+            static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC])->load_config();
+            if (auto_start) {
+                static_cast<VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+            }
+            __disable_irq();
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::TEST : State::IDEL;
+            enable(auto_start != 0);
+            __set_PRIMASK(interrupt_mask);
+        }
+    } else if (current_state == State::ERROR) {
         // TODO:提示错误信息
-    } else if (state == FOC) {
+    } else if (current_state == State::FOC) {
         // TODO:指示FOC正常运转
-    } else if (state == State::IDEL) {
+    } else if (current_state == State::IDEL) {
         // 发送心跳包指示设备就绪
-
-
-    } else if (state == TEST) {
+    } else if (current_state == State::TEST) {
         // TODO:电压开环测试状态
     }
 
-    //一般的任务
     Command ok_pack = {.cmd = 0x5A, .size = 0};
-    for (int i = 0; i < comm_manager_.comm_num(); i++)
-    {
-        if(comm_manager_[i]->allow_send()==0)  //此时总线允许发送
+    for (int i = 0; i < comm_manager_.comm_num(); i++) {
+        if (comm_manager_[i]->allow_send() == 0) {
             comm_manager_.send_pack(&ok_pack, i);
+        }
     }
-        
-
     slow_loop_cnt++;
+
+    state = next_state; // 更新状态
+
     return true;
 }
 
