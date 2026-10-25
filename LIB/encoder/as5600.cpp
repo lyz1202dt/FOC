@@ -94,8 +94,8 @@ bool AS5600::init() {
     return false;
 }
 
-bool AS5600::get_value(float& value, uint32_t max_age_us) {
-    const bool available = Encoder::get_value(value, max_age_us);
+bool AS5600::get_value(float& value, uint32_t max_age_us, uint64_t* sample_time_us) {
+    const bool available = Encoder::get_value(value, max_age_us, sample_time_us);
     if (recovery_task_ == nullptr) {
         return available;
     }

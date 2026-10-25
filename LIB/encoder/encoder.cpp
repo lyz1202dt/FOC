@@ -14,7 +14,7 @@ bool Encoder::init()
     return true;
 }
 
-bool Encoder::get_value(float& value, uint32_t max_age_us)
+bool Encoder::get_value(float& value, uint32_t max_age_us, uint64_t* sample_time_us)
 {
     uint64_t sample_time = 0U;
     const uint32_t interrupt_mask = __get_PRIMASK();
@@ -23,6 +23,9 @@ bool Encoder::get_value(float& value, uint32_t max_age_us)
     sample_time = encoder_update_us_;
     __set_PRIMASK(interrupt_mask);
 
+    if (sample_time_us != nullptr) {
+        *sample_time_us = sample_time;
+    }
     return sample_time != 0U && (BSP::get_time_us() - sample_time) <= max_age_us;
 }
 

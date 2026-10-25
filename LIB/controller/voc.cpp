@@ -24,13 +24,24 @@ void VOC::reset() {
     vir_ecc_rad         = 0.0f;
     measured_rad        = 0.0f;
     measured_rad_valid_ = false;
+    measured_current_   = 0.0f;
 }
 
 void VOC::set_measure(
     const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) {
+    (void)c2;
+    (void)c3;
+    (void)vbus;
+    measured_current_ = c1;
     measured_rad_valid_ = rad_is_trustable && std::isfinite(rad);
     if (measured_rad_valid_) {
         measured_rad = rad;
+    }
+}
+
+void VOC::controller_status(void* ref, size_t size) {
+    if (ref != nullptr && size == sizeof(float)) {
+        *static_cast<float*>(ref) = measured_current_;
     }
 }
 

@@ -2,6 +2,7 @@
 #include "as5047p.hpp"
 #include "as5600.hpp"
 #include "comm.hpp"
+#include "debug_comm.hpp"
 #include "driver.hpp"
 #include "drv8301.hpp"
 #include "encoder.hpp"
@@ -26,6 +27,7 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver);
 // 组装电机控制器
 CommManager comm_manager(2);
 UartComm uart_comm(BSP::uart_comm_port());
+DebugComm debug_comm;
 
 // float debug_rad;
 extern "C" void app_main(void* param) {
@@ -47,6 +49,8 @@ extern "C" void app_main(void* param) {
     //组织通信接口
     uart_comm.init();
     comm_manager.register_comm_channel(&uart_comm);     //注册一个串口交互设备
+    debug_comm.init();
+    comm_manager.register_comm_channel(&debug_comm);    // J-Scope 调试数据
     //TODO:注册CAN设备
 
     //电机初始化

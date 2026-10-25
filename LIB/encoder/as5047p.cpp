@@ -80,8 +80,8 @@ bool AS5047P::init() {
     return false;
 }
 
-bool AS5047P::get_value(float& value, uint32_t max_age_us) {
-    const bool available = Encoder::get_value(value, max_age_us);
+bool AS5047P::get_value(float& value, uint32_t max_age_us, uint64_t* sample_time_us) {
+    const bool available = Encoder::get_value(value, max_age_us, sample_time_us);
     if (!initialized_.load(std::memory_order_acquire)) {
         return available;
     }

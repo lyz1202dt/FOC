@@ -203,8 +203,9 @@ bool Motor::fast_loop() {
     }
 
     float encoder_rad            = 0.0f;
-    const bool encoder_available = encoder_->get_value(encoder_rad, 2000U);
-    estimater_->set_raw_rad(encoder_rad, encoder_available);
+    uint64_t encoder_sample_us = 0U;
+    const bool encoder_available = encoder_->get_value(encoder_rad, 2000U, &encoder_sample_us);
+    estimater_->set_raw_rad(encoder_rad, encoder_available, encoder_sample_us);
     // 估计器输入
     if (sensorless_mode_) {   // 无感模式还要输入电压和电流
         estimater_->set_raw_vol(dcbus_vol, voltage[0], voltage[1], voltage[2]);
@@ -310,10 +311,16 @@ bool Motor::handle_event() {
         pack->cmd            = 0x16;
         pack->size           = sizeof(MotorStatus);
         MotorStatus* payload = (MotorStatus*)pack->data;
-        controllers_[ControllerType::CONTROLLER_FOC]->controller_status(&(payload->current), sizeof(float));
+        controller_->controller_status(&(payload->current), sizeof(float));
         estimater_->get_value(payload->position, payload->velocity);
         payload->status = 0;              // TODO:填写状态/错误码
-        comm_manager_.send_pack(pack, 0); // 默认反馈到0通道
+
+
+        // 状态请求的结果同时发送
+        for (int channel = 0; channel < comm_manager_.comm_num(); ++channel) {
+            if(comm_manager_[channel]->allow_send())
+                comm_manager_.send_pack(pack, channel);
+        }
     } else if (cmd == 0x07)               // 设置参数值(存储的格式为:size(uint8_t)|c_str|data)
     {
         constexpr size_t kMaxPayloadSize = 32U - sizeof(Command);

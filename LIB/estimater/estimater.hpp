@@ -8,27 +8,30 @@ class Estimater {
 public:
     Estimater(Flash &flash) : flash(flash) {}
     virtual ~Estimater() = default;
-    virtual void set_raw_rad(float rad, bool available) {
+    virtual void set_raw_rad(float rad, bool available, uint64_t sample_time_us) {
         is_available_ = available && std::isfinite(rad);
         if (is_available_) {
             measured_rad_ = rad;
+            measured_sample_us_ = sample_time_us;
         }
     }
     virtual void set_raw_vol(float vbus, float v1, float v2, float v3) {}
     virtual void set_raw_cur(float c1, float c2, float c3) {}
     virtual bool update() {
         if (!is_available_) {
-            has_previous_sample_ = false;
-            omega_buf_ = 0.0f;
+            // 编码器是异步采样的，短暂超时不代表位置状态丢失。
+            // 保留上一有效样本，避免下一次完成采样时从零重新启动速度估算，
+            // 这会把整个采样间隔误差放大成速度尖峰。
             return false;
         }
 
-        const uint64_t now = BSP::get_time_us();
+        // 只对新的编码器样本求差；重复读取缓存不能当作零速度样本。
+        const uint64_t now = measured_sample_us_;
         if (has_previous_sample_) {
-            const uint64_t elapsed_us = now - last_update_us_;
-            if (elapsed_us == 0U) {
+            if (now <= last_update_us_) {
                 return true;
             }
+            const uint64_t elapsed_us = now - last_update_us_;
             // 最短角度差，避免编码器跨越 0/2π 时产生速度尖峰。
             constexpr float kTwoPi = 6.28318530717958647692f;
             const float delta_rad = std::remainder(measured_rad_ - rad_buf_, kTwoPi);
@@ -61,4 +64,5 @@ protected:
     bool is_available_{false};
     bool has_previous_sample_{false};
     uint64_t last_update_us_{0};
+    uint64_t measured_sample_us_{0};
 };

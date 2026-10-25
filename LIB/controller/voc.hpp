@@ -15,6 +15,7 @@ public:
     void reset() override;
     bool get_output(float& v1, float& v2, float& v3) override;
     void controller_reference(void* ref, size_t size) override;
+    void controller_status(void* ref, size_t size) override;
 
     int n{0};
     float offset{0.0f};
@@ -25,4 +26,5 @@ private:
     bool use_virtue_rad{false};
     bool config_loaded_{false};
     bool measured_rad_valid_{false};
+    float measured_current_{0.0f};
 };

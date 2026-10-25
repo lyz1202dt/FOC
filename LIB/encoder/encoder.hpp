@@ -8,7 +8,7 @@ public:
     explicit Encoder(Flash &flash);
     virtual ~Encoder();
     virtual bool init();                         //启动编码器采样
-    virtual bool get_value(float& value, uint32_t max_age_us);  //异步获取转子弧度，并检查这个数据是否足够新鲜
+    virtual bool get_value(float& value, uint32_t max_age_us, uint64_t* sample_time_us = nullptr);  //异步获取转子弧度，并检查这个数据是否足够新鲜
     uint32_t error_;
 protected:
     void record_value(float rad);       //线程安全存储数值和时间戳
