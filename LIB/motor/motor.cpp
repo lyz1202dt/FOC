@@ -1,6 +1,7 @@
 #include "motor.hpp"
 #include "comm.hpp"
 #include "estimater.hpp"
+#include "encoder_calib.hpp"
 #include "flash.hpp"
 #include "foc.hpp"
 #include "idel.hpp"
@@ -30,6 +31,10 @@ bool Motor::enable(bool enable) {
         } else {
             success = driver_->enable_pwm(false) && !enable;
         }
+    }
+    if (!enable && controller_ != nullptr && controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]) {
+        // 中断校准输出后，必须重新持续对齐完整的两秒。
+        controller_->set_measure(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
     }
     __set_PRIMASK(interrupt_mask);
     return success;
@@ -94,8 +99,8 @@ bool Motor::init() {
     controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC(flash_);
     controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
     controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
-    controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = nullptr;
-    // 设置初始控制器为IDEL
+    controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = new EncoderCalib(flash_);
+    // INIT 启动阶段先保持 IDEL 输出，慢循环投递事件后选择校准或目标控制器。
     controller_ = next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
     next_estimater_                = estimater_;
 
@@ -194,17 +199,21 @@ bool Motor::fast_loop() {
 
     if (!enable_motor_) // 未使能电机，正常退出，不执行控制
     {
-        driver_->set_phrase_voltage(0.0f, 0.0f, 0.0f);
+        stop_output();
         return true;
     }
 
 
-    controller_->set_measure(current[0], current[1], current[2], dcbus_vol, estimatered_rad, success);
+    const bool calibrating_encoder = controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
+    controller_->set_measure(
+        current[0], current[1], current[2], dcbus_vol, calibrating_encoder ? encoder_rad : estimatered_rad,
+        calibrating_encoder ? encoder_available : success);
     if (!controller_->get_output(voltage[0], voltage[1], voltage[2])) {
         stop_output();
         return false;
     }
     if (!driver_->set_phrase_voltage(voltage[0], voltage[1], voltage[2])) {
+        stop_output();
         return false;
     }
     last_voltage_[0] = voltage[0];
@@ -215,41 +224,145 @@ bool Motor::fast_loop() {
 }
 
 void Motor::stop_output() {
+    if (controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]) {
+        controller_->set_measure(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    }
     driver_->set_phrase_voltage(0.0f, 0.0f, 0.0f);
     last_voltage_[0] = 0.0f;
     last_voltage_[1] = 0.0f;
     last_voltage_[2] = 0.0f;
 }
 
-void Motor::request_controller(ControllerType type, State requested_state) {
+bool Motor::request_controller(ControllerType type, State requested_state) {
+    if (type < ControllerType::CONTROLLER_IDEL || type >= ControllerType::CONTROLLER_NUM || controllers_[type] == nullptr) {
+        return false;
+    }
+    // Flash 的读取可能阻塞，只能在任务上下文、发布控制器切换前完成。
+    if (type == ControllerType::CONTROLLER_TEST && !static_cast<VOC*>(controllers_[type])->load_config()) {
+        return false;
+    }
+    if (type == ControllerType::CONTROLLER_FOC && !static_cast<class FOC*>(controllers_[type])->load_config()) {
+        return false;
+    }
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
     next_controller_ = controllers_[type];
     next_state = requested_state;
     __set_PRIMASK(interrupt_mask);
+    return true;
+}
+
+bool Motor::queue_init_event() {
+    uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    if (init_event_pending_ || state != State::INIT || next_state != State::INIT || core_error_ != 0U) {
+        __set_PRIMASK(interrupt_mask);
+        return true;
+    }
+    init_event_pending_ = true;
+    __set_PRIMASK(interrupt_mask);
+
+    Command* command = static_cast<Command*>(memory_poll_.require_blob());
+    if (command != nullptr) {
+        command->cmd = kInitEvent;
+        command->size = 0U;
+        if (xQueueSend(event_queue_, &command, 0U) == pdTRUE) {
+            return true;
+        }
+        memory_poll_.release_blob(command);
+    }
+    interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    init_event_pending_ = false;
+    __set_PRIMASK(interrupt_mask);
+    return false;
+}
+
+bool Motor::fail_init() {
+    enable(false);
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
+    state = next_state = State::ERROR;
+    core_error_ = 0x0C;
+    __set_PRIMASK(interrupt_mask);
+    return false;
+}
+
+bool Motor::finish_init() {
+    enable(false);
+    int32_t auto_enable = 0;
+    flash_.read_value("setup/auto", auto_enable);
+    const ControllerType type = auto_enable != 0 ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL;
+    const State target_state = auto_enable != 0 ? State::TEST : State::IDEL;
+    if (!request_controller(type, target_state) || (auto_enable != 0 && !enable(true))) {
+        return fail_init();
+    }
+    return true;
+}
+
+bool Motor::handle_init() {
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    const bool initializing = state == State::INIT && next_state == State::INIT && core_error_ == 0U;
+    __set_PRIMASK(interrupt_mask);
+    if (!initializing) {
+        return true;
+    }
+    if (!encoder_calib_started_) {
+        int32_t encoder_calib = 0;
+        flash_.read_value("setup/encoder_calib", encoder_calib);
+        if (encoder_calib != 1) {
+            return finish_init();
+        }
+        if (!request_controller(ControllerType::CONTROLLER_ENCODER_CALIB, State::INIT) || !enable(true)) {
+            return fail_init();
+        }
+        encoder_calib_started_ = true;
+        return true;
+    }
+
+    float offset = 0.0f;
+    auto* calib = static_cast<EncoderCalib*>(controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]);
+    if (!calib->get_offset(offset)) {
+        return true;
+    }
+    enable(false);
+    // write_value 仅更新 RAM，校准流程不调用 fresh() 写入非易失 Flash。
+    if (!flash_.write_value("foc/offset", offset)) {
+        return fail_init();
+    }
+    return finish_init();
 }
 
 bool Motor::handle_event() {
     Command* command = nullptr;
     xQueueReceive(event_queue_, &command, portMAX_DELAY);
     uint32_t cmd = command->cmd;
-    if (cmd == 0x01)          // 启动/停止控制输出fast_loop
+    bool success = true;
+    if (cmd == kInitEvent) {
+        success = handle_init();
+        const uint32_t interrupt_mask = __get_PRIMASK();
+        __disable_irq();
+        init_event_pending_ = false;
+        __set_PRIMASK(interrupt_mask);
+    } else if (cmd == 0x01)          // 启动/停止控制输出fast_loop
     {
         enable(command->data[0] ? true : false);
     } else if (cmd == 0x02)   // 请求切入IDEL模式
     {
-        request_controller(ControllerType::CONTROLLER_IDEL, State::IDEL);
+        success = request_controller(ControllerType::CONTROLLER_IDEL, State::IDEL);
     } else if (cmd == 0x03)   // 请求切入开环测试
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            request_controller(ControllerType::CONTROLLER_TEST, State::TEST);
+            success = request_controller(ControllerType::CONTROLLER_TEST, State::TEST);
         }
     } else if (cmd == 0x04)   // 请求切入FOC闭环
     {
         if (core_error_ == 0) // 无错误允许切换
         {
-            request_controller(ControllerType::CONTROLLER_FOC, State::FOC);
+            success = request_controller(ControllerType::CONTROLLER_FOC, State::FOC);
         }
     } else if (cmd == 0x05)   // 设置FOC参考力矩电流
     {
@@ -339,12 +452,17 @@ bool Motor::handle_event() {
         }
     }
     memory_poll_.release_blob(command);
-    return true;
+    return success;
 }
 
 // LED指示，按键扫描
 bool Motor::slow_loop() {
-    if (state == State::ERROR) {
+    if (state == State::INIT) {
+        // handle_event 始终阻塞收消息；上电推进与校准完成检查由此主动触发。
+        if (!queue_init_event()) {
+            return false;
+        }
+    } else if (state == State::ERROR) {
 
         // TODO:提示错误信息
     } else if (state == FOC) {
@@ -353,20 +471,6 @@ bool Motor::slow_loop() {
         // 发送心跳包指示设备就绪
 
 
-        //Debug：立即切到电压开环测试
-        // 队列保存指针，命令由内存池持有，消费完成后由 handle_event() 释放。
-        Command* command = static_cast<Command*>(memory_poll_.require_blob());
-        if (command != nullptr) {
-            command->cmd = 0x03;
-            command->size = 0;
-            if (xQueueSend(event_queue_, &command, pdMS_TO_TICKS(10)) != pdTRUE) {
-                memory_poll_.release_blob(command);
-                return false;
-            }
-        } else {
-            return false;
-        }
-        
     } else if (state == TEST) {
         // TODO:电压开环测试状态
     }

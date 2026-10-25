@@ -1,12 +1,10 @@
 #include "foc.hpp"
 #include "arm_math.h"
+#include "hardware.hpp"
 #include <cmath>
 
 FOC::FOC(Flash &flash) : Controller(flash) {
-    n=1;        //默认值
-    offset=0;
-    flash.read_value("foc/n",n);
-    flash.read_value("foc/offset",offset);
+    load_config();
     flash.read_value("foc/pid/kp",iq_pid.kp_);
     flash.read_value("foc/pid/ki",iq_pid.ki_);
     flash.read_value("foc/pid/kp",id_pid.kp_);
@@ -17,6 +15,22 @@ FOC::FOC(Flash &flash) : Controller(flash) {
     id_pid.inter_limit_=1000.0f;
     iq_pid.reset();
     id_pid.reset();
+}
+
+bool FOC::load_config() {
+    int32_t pole_pairs      = 0;
+    float mechanical_offset = 0.0f;
+    if (!flash.read_value("foc/n", pole_pairs) || !flash.read_value("foc/offset", mechanical_offset) || pole_pairs <= 0
+        || !std::isfinite(mechanical_offset)) {
+        return false;
+    }
+    const uint32_t interrupt_mask = __get_PRIMASK();
+    __disable_irq();
+    n              = pole_pairs;
+    offset         = mechanical_offset;
+    config_loaded_ = true;
+    __set_PRIMASK(interrupt_mask);
+    return true;
 }
 
 void FOC::reset() {
@@ -38,11 +52,20 @@ void FOC::set_measure(
 }
 
 bool FOC::get_output(float& v1, float& v2, float& v3) {
+    v1 = v2 = v3 = 0.0f;
+    if (!config_loaded_) {
+        return false;
+    }
     float ix,iy;
     ix=2.0f/3.0f*(c1*1.0f-c2*0.5f-c3*0.5f);         //将三相电流变为正交坐标系下的电流
     iy=2.0f/3.0f*(c1*0.0f+c2*0.866025404f-c3*0.866025404f);
 
-    float erad=(rad*n-offset);
+    // 校准 offset 存储的是机械角，与 VOC 使用相同的电角度换算。
+    constexpr float kTwoPi = 6.28318530717958647692f;
+    const float erad = std::fmod((rad - offset) * static_cast<float>(n), kTwoPi);
+    if (!std::isfinite(erad)) {
+        return false;
+    }
     float s,c;
     s=arm_sin_f32(-erad);
     c=arm_cos_f32(-erad);

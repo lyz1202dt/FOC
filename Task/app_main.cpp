@@ -61,12 +61,6 @@ extern "C" void app_main(void* param) {
     xTaskCreate(motor_slow_loop, "motor_slow_loop", 256, motor, 1, &motor_slow_loop_task_handle);
 
 
-    //Debug 自动启动PWM输出
-    int32_t auto_enable=0;
-    flash.read_value("setup/auto", auto_enable);
-    if(auto_enable)
-        motor->enable(true);
-
     //创建事件处理环路
     while (1) {
         motor->handle_event(); // 阻塞等待并处理电机事件

@@ -19,7 +19,7 @@ public:
 
     // 仅在首次调用 init() 前装配；组件由调用方持有，生命周期须覆盖 Motor。
     bool install_driver(Encoder* encoder, MotorDriver* driver);
-    bool init();  // 在线程上下文准备采样与校准，完成后保持功率输出关闭。
+    bool init();  // 在线程上下文准备采样；功率输出关闭，随后由 INIT 状态执行上电流程。
     bool enable(bool enable);  //是否开启功率输出
     bool fast_loop();  //在PWM更新中断中调用
     bool slow_loop();   //慢循环，维护状态更新，心跳保活包等
@@ -49,6 +49,7 @@ public:
         IDEL,
         TEST,
         FOC,
+        INIT,
         ERROR
     };
 
@@ -56,12 +57,20 @@ private:
     bool on_command(Command* data);
     bool notify_error(uint8_t error);
     void stop_output();
-    void request_controller(ControllerType type, State requested_state);
+    bool request_controller(ControllerType type, State requested_state);
+    bool queue_init_event();
+    bool handle_init();
+    bool finish_init();
+    bool fail_init();
+
+    static constexpr uint32_t kInitEvent = 0x100U;
 
     BSP::SVPWM& svpwm_;
     tools::MemoryPoll memory_poll_;
     bool init_started_{false};
     QueueHandle_t event_queue_{nullptr};
+    bool init_event_pending_{false}; // 通过临界区在慢循环任务与事件任务间同步。
+    bool encoder_calib_started_{false}; // 仅事件任务访问。
 
     float last_voltage_[3]{0.0f, 0.0f, 0.0f};
     bool enable_motor_{false};
@@ -71,8 +80,8 @@ private:
     //Controllers
     Controller* controllers_[ControllerType::CONTROLLER_NUM]{};
     //当前状态
-    State state{State::IDEL};
-    State next_state{State::IDEL};
+    State state{State::INIT};
+    State next_state{State::INIT};
     //code
     uint8_t core_error_{0};
 };

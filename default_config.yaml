@@ -1,7 +1,7 @@
 # 数据类型：int32 uint32 int64 uint64 float32 float64（不支持字符串值）
 config:
   components:
-    encoder: ["int32",1]
+    encoder: ["int32",0]
     estimater: ["int32",0]
     driver: ["int32",0]
   foc:
@@ -13,3 +13,4 @@ config:
       limit: ["float32",100.0]
   setup:
     auto: ["int32",1]
+    encoder_calib: ["int32",1]
