@@ -33,10 +33,9 @@ AS5600::AS5600(Flash& flash, BSP::I2CBus& bus, bool use_angle_when_magnet_weak)
         auto* self = static_cast<AS5600*>(transfer->param);
         if (transfer->status == HAL_OK && transfer->error_code == HAL_I2C_ERROR_NONE) {
             const uint8_t status = self->recv_buffer_[0];
-            // ANGLE is at offsets 3 and 4; mask the unused high nibble.
             const uint16_t angle_count =
-                (static_cast<uint16_t>(self->recv_buffer_[3] & 0x0FU) << 8) |
-                static_cast<uint16_t>(self->recv_buffer_[4]);
+                (static_cast<uint16_t>(self->recv_buffer_[1] & 0x0FU) << 8) |
+                static_cast<uint16_t>(self->recv_buffer_[2]);
             if ((status & kMagnetDetected) != 0U &&
                 (status & kMagnetTooStrong) == 0U &&
                 (self->use_angle_when_magnet_weak_ || (status & kMagnetTooWeak) == 0U)) {
