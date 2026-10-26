@@ -26,5 +26,7 @@ private:
     bool use_virtue_rad{false};
     bool config_loaded_{false};
     bool measured_rad_valid_{false};
-    float measured_current_{0.0f};
+    float measured_alpha_current_{0.0f};
+    float measured_beta_current_{0.0f};
+    float filtered_iq_{0.0f};
 };

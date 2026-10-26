@@ -94,7 +94,10 @@ void SVPWM::set_voltage(float dc_bus, float v1, float v2, float v3) {
     const auto to_compare = [zero_sequence, dc_bus, period](float phase_voltage) -> uint32_t {
         float duty = 0.5f + (phase_voltage - zero_sequence) / dc_bus;
         duty       = std::clamp(duty, 0.0f, 1.0f);
-        return static_cast<uint32_t>(duty * period);
+        // PWM1 原比较值计算：
+        // return static_cast<uint32_t>(duty * period);
+        // PWM2 的主输出在 CNT > CCR 时有效，反转比较值以保持相电压占空比。
+        return static_cast<uint32_t>(period) - static_cast<uint32_t>(duty * period);
     };
 
     channels_[0]->setPulse(to_compare(v1));

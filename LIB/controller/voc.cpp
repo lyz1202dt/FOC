@@ -24,15 +24,16 @@ void VOC::reset() {
     vir_ecc_rad         = 0.0f;
     measured_rad        = 0.0f;
     measured_rad_valid_ = false;
-    measured_current_   = 0.0f;
+    measured_alpha_current_ = 0.0f;
+    measured_beta_current_ = 0.0f;
+    filtered_iq_ = 0.0f;
 }
 
 void VOC::set_measure(
     const float& c1, const float& c2, const float& c3, const float& vbus, const float& rad, const bool& rad_is_trustable) {
-    (void)c2;
-    (void)c3;
     (void)vbus;
-    measured_current_ = c1;
+    measured_alpha_current_ = (2.0f / 3.0f) * (c1 - 0.5f * c2 - 0.5f * c3);
+    measured_beta_current_ = (2.0f / 3.0f) * (0.866025404f * c2 - 0.866025404f * c3);
     measured_rad_valid_ = rad_is_trustable && std::isfinite(rad);
     if (measured_rad_valid_) {
         measured_rad = rad;
@@ -41,7 +42,7 @@ void VOC::set_measure(
 
 void VOC::controller_status(void* ref, size_t size) {
     if (ref != nullptr && size == sizeof(float)) {
-        *static_cast<float*>(ref) = measured_current_;
+        *static_cast<float*>(ref) = filtered_iq_;
     }
 }
 
@@ -50,7 +51,7 @@ bool VOC::get_output(float& v1, float& v2, float& v3) {
     if (!config_loaded_ || (!use_virtue_rad && !measured_rad_valid_)) {
         return false;
     }
-    const float vq = 1.0f; // 测试电压
+    const float vq = 2.0f; // 测试电压
     const float vd = 0.0f;
 
     if (use_virtue_rad) {
@@ -71,6 +72,10 @@ bool VOC::get_output(float& v1, float& v2, float& v3) {
     }
     const float s = arm_sin_f32(vir_ecc_rad);
     const float c = arm_cos_f32(vir_ecc_rad);
+
+    // Park transform uses the same electrical frame as the voltage output.
+    const float iq = -s * measured_alpha_current_ + c * measured_beta_current_;
+    filtered_iq_ += 0.1f * (iq - filtered_iq_);
 
     const float vx = c * vd - s * vq;
     const float vy = s * vd + c * vq;
