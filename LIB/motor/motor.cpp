@@ -5,6 +5,7 @@
 #include "flash.hpp"
 #include "foc.hpp"
 #include "idel.hpp"
+#include "mit.hpp"
 #include "pack.h"
 #include "portmacro.h"
 #include "projdefs.h"
@@ -97,6 +98,8 @@ bool Motor::init() {
     // 创建全部控制器
     controllers_[ControllerType::CONTROLLER_IDEL]          = new class IDEL(flash_);
     controllers_[ControllerType::CONTROLLER_FOC]           = new class FOC(flash_);
+    controllers_[ControllerType::CONTROLLER_MIT]           =
+        new class MIT(flash_, static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC]));
     controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
     controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
     controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = new EncoderCalib(flash_);
@@ -418,13 +421,10 @@ bool Motor::slow_loop() {
             // 跳过校准，直接按启动配置选择目标状态。
             int32_t auto_start = 0;
             flash_.read_value("setup/auto", auto_start);
-            static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC])->load_config();
-            if (auto_start) {
-                static_cast<VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
-            }
+            static_cast<class MIT*>(controllers_[ControllerType::CONTROLLER_MIT])->load_config();
             __disable_irq();
-            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
-            next_state       = auto_start ? State::TEST : State::IDEL;
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_MIT : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::MIT : State::IDEL;
             enable(auto_start != 0);
             __set_PRIMASK(interrupt_mask);
         }
@@ -436,13 +436,10 @@ bool Motor::slow_loop() {
             flash_.write_value("foc/offset", offset);
             int32_t auto_start = 0;
             flash_.read_value("setup/auto", auto_start);
-            static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC])->load_config();
-            if (auto_start) {
-                static_cast<VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
-            }
+            static_cast<class MIT*>(controllers_[ControllerType::CONTROLLER_MIT])->load_config();
             __disable_irq();
-            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
-            next_state       = auto_start ? State::TEST : State::IDEL;
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_MIT : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::MIT : State::IDEL;
             enable(auto_start != 0);
             __set_PRIMASK(interrupt_mask);
         }
@@ -450,6 +447,8 @@ bool Motor::slow_loop() {
         // TODO:提示错误信息
     } else if (current_state == State::FOC) {
         // TODO:指示FOC正常运转
+    } else if (current_state == State::MIT) {
+        // TODO:指示MIT正常运转
     } else if (current_state == State::IDEL) {
         // 发送心跳包指示设备就绪
     } else if (current_state == State::TEST) {

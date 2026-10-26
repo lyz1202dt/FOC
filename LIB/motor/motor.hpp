@@ -43,6 +43,7 @@ public:
         CONTROLLER_MOTOR_CALIB,         //电机校准模式
         CONTROLLER_ENCODER_CALIB,       //编码器校准模式
         CONTROLLER_TEST,                //测试控制器
+        CONTROLLER_MIT,                 //MIT阻抗控制模式
         CONTROLLER_NUM
     };
 
@@ -52,7 +53,8 @@ public:
         FOC,
         INIT,
         MEASURE,
-        ERROR
+        ERROR,
+        MIT
     };
 
 private:

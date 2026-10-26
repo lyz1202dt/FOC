@@ -9,8 +9,12 @@ config:
     offset: ["float32",0.0]
     pid:
       ki: ["float32",0.1]
-      kd: ["float32",0.1]
+      kd: ["float32",50.0]
       limit: ["float32",100.0]
+  mit:
+    max_r: ["int32",4]
+    kp: ["float32",0.0]
+    kd: ["float32",3.0]
   setup:
     auto: ["int32",1]
     encoder_calib: ["int32",1]

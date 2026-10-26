@@ -9,10 +9,10 @@ FOC::FOC(Flash &flash) : Controller(flash) {
     flash.read_value("foc/pid/ki",iq_pid.ki_);
     flash.read_value("foc/pid/kp",id_pid.kp_);
     flash.read_value("foc/pid/ki",id_pid.ki_);
-    iq_pid.output_limit_=1e7f;
-    id_pid.output_limit_=1e7f;
-    iq_pid.inter_limit_=1000.0f;
-    id_pid.inter_limit_=1000.0f;
+    iq_pid.output_limit_=3.0f;  //安全起见
+    id_pid.output_limit_=3.0f;
+    iq_pid.inter_limit_=50.0f;
+    id_pid.inter_limit_=50.0f;
     iq_pid.reset();
     id_pid.reset();
 }
