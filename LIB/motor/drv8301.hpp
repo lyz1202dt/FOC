@@ -53,6 +53,8 @@ public:
     bool get_phrase_current(float& c1, float& c2, float& c3) override;
     bool set_phrase_voltage(float v1, float v2, float v3) override;
 
+    // 任务上下文零电流校准：转子须静止，调用方保持 TIM1 采样时基运行。
+    // 校准使用正常输入（DC_CAL 关闭），执行后功率输出保持关闭。
     bool self_check() override;
 
     // 寄存器操作仅限任务上下文；并发请求或在途传输未完成时返回失败。
