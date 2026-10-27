@@ -19,7 +19,7 @@ public:
     int n{1};
     float offset{0.0f};
 private:
-    float exp_iq_{0.0f};
+    float exp_iq_{0.4f};
     float cur_iq_{0.0f};
     
     PID iq_pid,id_pid;

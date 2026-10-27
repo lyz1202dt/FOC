@@ -23,7 +23,7 @@ public:
 private:
     float vir_ecc_rad{0.0f};
     float measured_rad{0.0f};
-    bool use_virtue_rad{false};
+    bool use_virtue_rad{true};
     bool config_loaded_{false};
     bool measured_rad_valid_{false};
     float measured_alpha_current_{0.0f};

@@ -5,7 +5,7 @@ config:
     estimater: ["int32",0]
     driver: ["int32",0]
   foc:
-    n: ["int32",7]
+    n: ["int32",-20]
     offset: ["float32",0.0]
     pid:
       ki: ["float32",0.1]

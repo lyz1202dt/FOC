@@ -51,7 +51,7 @@ bool VOC::get_output(float& v1, float& v2, float& v3) {
     if (!config_loaded_ || (!use_virtue_rad && !measured_rad_valid_)) {
         return false;
     }
-    const float vq = 2.0f; // 测试电压
+    const float vq = 1.0f; // 测试电压
     const float vd = 0.0f;
 
     if (use_virtue_rad) {

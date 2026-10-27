@@ -421,10 +421,12 @@ bool Motor::slow_loop() {
             // 跳过校准，直接按启动配置选择目标状态。
             int32_t auto_start = 0;
             flash_.read_value("setup/auto", auto_start);
-            static_cast<class MIT*>(controllers_[ControllerType::CONTROLLER_MIT])->load_config();
+            if (auto_start) {
+                static_cast<class VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+            }
             __disable_irq();
-            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_MIT : ControllerType::CONTROLLER_IDEL];
-            next_state       = auto_start ? State::MIT : State::IDEL;
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::TEST : State::IDEL;
             enable(auto_start != 0);
             __set_PRIMASK(interrupt_mask);
         }
@@ -436,10 +438,12 @@ bool Motor::slow_loop() {
             flash_.write_value("foc/offset", offset);
             int32_t auto_start = 0;
             flash_.read_value("setup/auto", auto_start);
-            static_cast<class MIT*>(controllers_[ControllerType::CONTROLLER_MIT])->load_config();
+            if (auto_start) {
+                static_cast<class VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+            }
             __disable_irq();
-            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_MIT : ControllerType::CONTROLLER_IDEL];
-            next_state       = auto_start ? State::MIT : State::IDEL;
+            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+            next_state       = auto_start ? State::TEST : State::IDEL;
             enable(auto_start != 0);
             __set_PRIMASK(interrupt_mask);
         }

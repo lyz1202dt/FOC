@@ -29,7 +29,7 @@ CommManager comm_manager(2);
 UartComm uart_comm(BSP::uart_comm_port());
 DebugComm debug_comm;
 
-// float debug_rad;
+float debug_rad;
 extern "C" void app_main(void* param) {
     BSP::time_init();
     BSP::ic_spi_bus().init();
@@ -54,11 +54,21 @@ extern "C" void app_main(void* param) {
     //TODO:注册CAN设备
 
     //电机初始化
+    //if (1) {
     if (!motor->init()) {
         // 初始化失败时保持输出关闭，不启动控制与事件处理环路。
+
+        //Debug：初始化失败时再次单独尝试启动编码器，并将编码器测到的数字直接存到debug_rad
+        if (encoder != nullptr) {
+            encoder->init();
+        }
         while(1)
         {
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            float rad = 0.0f;
+            if (encoder != nullptr && encoder->get_value(rad, 20000U)) {
+                debug_rad = rad;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1));
         }
     }
     //创建状态更新环路
