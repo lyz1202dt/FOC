@@ -195,6 +195,8 @@ bool DRV8301::start_adc_sampling() {
         return false;
     }
     adc_started_ = adc_.injectedStartIt([this]() {
+        // PB9 marks injected-sequence completion; each edge represents one sample cycle.
+        HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_9);
         const uint64_t now = BSP::get_time_us();
         adc_samples_.save(kPhaseB, static_cast<uint16_t>(adc_.injectedValue(ADC_INJECTED_RANK_1)), now);
         adc_samples_.save(kPhaseC, static_cast<uint16_t>(adc_.injectedValue(ADC_INJECTED_RANK_2)), now);
