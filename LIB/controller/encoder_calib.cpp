@@ -43,9 +43,9 @@ bool EncoderCalib::get_output(float& v1, float& v2, float& v3) {
         complete_ = true;
         return true;
     }
-    // Vd = 3 V, Vq = 0 V, 电角度 = 0；逆 Clarke 变换。
-    v1 = 0.30f;
-    v2 = v3 = -0.15f;
+    // Vd = 1 V, Vq = 0 V, 电角度 = 0；逆 Clarke 变换。
+    v1 = 1.0f;
+    v2 = v3 = -0.5f;
     return true;
 }
 

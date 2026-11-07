@@ -1,5 +1,6 @@
 #include "motor.hpp"
 #include "comm.hpp"
+#include "debug_comm.hpp"
 #include "encoder_calib.hpp"
 #include "estimater.hpp"
 #include "flash.hpp"
@@ -204,6 +205,12 @@ bool Motor::fast_loop() {
         stop_output();
         return false;
     }
+    /**Debug*/
+    jscope_phase_current_a = current[0];
+    jscope_phase_current_b = current[1];
+    jscope_phase_current_c = current[2];
+    jscope_bus_voltage = dcbus_vol;
+    /**Debug*/
 
     float encoder_rad            = 0.0f;
     uint64_t encoder_sample_us = 0U;

@@ -29,6 +29,8 @@ CommManager comm_manager(2);
 UartComm uart_comm(BSP::uart_comm_port());
 DebugComm debug_comm;
 
+Motor* motor;
+
 float debug_rad;
 extern "C" void app_main(void* param) {
     BSP::time_init();
@@ -38,7 +40,7 @@ extern "C" void app_main(void* param) {
 
     flash.init();
 
-    Motor* motor=new Motor(flash, comm_manager, BSP::tim1_svpwm());
+    motor=new Motor(flash, comm_manager, BSP::tim1_svpwm());
 
     //根据Flash配置，构造当前要使用的组件
     Encoder* encoder;
