@@ -13,7 +13,7 @@ constexpr float kAdcReferenceVolts         = 3.3f;
 constexpr float kAdcFullScale              = 4096.0f;
 constexpr float kDefaultCurrentGain       = 20.0f;
 constexpr float kShuntResistanceOhms       = 0.001f;
-constexpr float kVbusDividerRatio         = 11.0f; // R5=20K, R9=2K on SCH_Schematic1_2026-08-16.pdf.
+constexpr float kVbusDividerRatio         = 11.0f; // R5=20K, R9=2K in foc6/2_driver.kicad_sch.
 
 static_assert(std::atomic<bool>::is_always_lock_free);
 
@@ -207,12 +207,25 @@ bool DRV8301::start_adc_sampling() {
 
 bool DRV8301::is_ready() {
     if (state_ == State::Ready && !fault_.read()) {
+        fault_snapshot_.time_us = static_cast<uint32_t>(BSP::get_time_us());
+        fault_snapshot_.tim_bdtr = TIM1->BDTR;
+        fault_snapshot_.tim_ccer = TIM1->CCER;
+        fault_snapshot_.tim_ccr1 = TIM1->CCR1;
+        fault_snapshot_.tim_ccr2 = TIM1->CCR2;
+        fault_snapshot_.tim_ccr3 = TIM1->CCR3;
+        fault_snapshot_.gpio_idr = GPIOC->IDR;
+        const uint64_t sample_time = adc_samples_.get(kVbus, fault_snapshot_.vbus_raw);
+        fault_snapshot_.vbus_sample_age_us = sample_time == 0U
+            ? UINT32_MAX : static_cast<uint32_t>(BSP::get_time_us() - sample_time);
+        fault_snapshot_pending_.store(true, std::memory_order_release);
         // ISR 中立即关闭功率输出；不要等待任务读取 SPI 或仅停止更新占空比。
         svpwm_.enable_output(false);
         // nFault 为低有效；电平恢复后也不自动恢复 Ready。
         state_ = State::Fault;
     }
     return state_ == State::Ready;
+    //return true;
+
 }
 
 bool DRV8301::get_phrase_current(float& c1, float& c2, float& c3) {
@@ -275,8 +288,17 @@ DRV8301::FaultType_e DRV8301::get_error() {
 }
 
 void DRV8301::update_error() {
-    // 复用 SPI 队列读取两个状态寄存器；失败时缓存 FaultType_SPI。
-    error_ = static_cast<uint32_t>(get_error());
+    if (!fault_snapshot_pending_.exchange(false, std::memory_order_acquire)) {
+        return;
+    }
+    fault_snapshot_.status_time_us = static_cast<uint32_t>(BSP::get_time_us());
+    fault_snapshot_.status_valid = read_status(fault_snapshot_.status);
+    if (!fault_snapshot_.status_valid) {
+        error_ = FaultType_SPI;
+        return;
+    }
+    error_ = static_cast<uint32_t>(fault_snapshot_.status.status1)
+           | (static_cast<uint32_t>(fault_snapshot_.status.status2 & 0x0080U) << 16);
 }
 
 bool DRV8301::read_status(StatusRegisters& status) {

@@ -10,6 +10,7 @@
 #include "i2c.hpp"
 #include "projdefs.h"
 #include "spi.hpp"
+#include "virtual.hpp"
 
 
 #include "comm.hpp"
@@ -96,8 +97,9 @@ void load_components_from_config(Encoder*& encoder, MotorDriver*& driver) {
     int encoder_type = 0;
     flash.read_value("components/encoder", encoder_type);
     switch (encoder_type) {
-    case 0: encoder = new AS5600(flash, BSP::sensor_i2c_bus()); break;
-    case 1: encoder = new AS5047P(flash, BSP::sensor_spi_bus(), BSP::sensor_spi_cs()); break;
+    case 0: encoder = new VirtualEncoder(flash); break;
+    case 1: encoder = new AS5600(flash, BSP::sensor_i2c_bus()); break;
+    case 2: encoder = new AS5047P(flash, BSP::sensor_spi_bus(), BSP::sensor_spi_cs()); break;
     default: encoder = nullptr; break;
     }
 

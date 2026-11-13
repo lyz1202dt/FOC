@@ -40,6 +40,21 @@ public:
         uint16_t status2{0};
     };
 
+    struct FaultSnapshot {
+        uint32_t time_us{0};
+        uint32_t tim_bdtr{0};
+        uint32_t tim_ccer{0};
+        uint32_t tim_ccr1{0};
+        uint32_t tim_ccr2{0};
+        uint32_t tim_ccr3{0};
+        uint32_t gpio_idr{0};
+        uint32_t status_time_us{0};
+        uint32_t vbus_sample_age_us{0};
+        uint16_t vbus_raw{0};
+        StatusRegisters status{};
+        bool status_valid{false};
+    };
+
     DRV8301(Flash& flash, bsp::SpiBus& spi, BSP::Gpio& cs, BSP::SVPWM& svpwm, bsp::AdcChannel& adc,
             BSP::Gpio& enable_gate, BSP::Gpio& fault, BSP::Gpio& dc_cal);
 
@@ -124,4 +139,6 @@ private:
     std::atomic<bool> transfer_pending_{false};
     bsp::SpiTransferStatus transfer_status_{bsp::SpiTransferStatus::Ok};
     bool adc_started_{false};
+    FaultSnapshot fault_snapshot_{};
+    std::atomic<bool> fault_snapshot_pending_{false};
 };
