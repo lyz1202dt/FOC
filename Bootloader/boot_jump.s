@@ -7,7 +7,6 @@
 .type BootJumpToApp, %function
 .thumb_func
 BootJumpToApp:
-    /* No C code or stack accesses after installing the application's MSP. */
     ldr r1, [r0]
     ldr r2, [r0, #4]
     movs r3, #0

@@ -5,16 +5,14 @@
 
 FOC::FOC(Flash &flash) : Controller(flash) {
     load_config();
-    flash.read_value("foc/pid/kp",iq_pid.kp_);
-    flash.read_value("foc/pid/ki",iq_pid.ki_);
-    flash.read_value("foc/pid/kp",id_pid.kp_);
-    flash.read_value("foc/pid/ki",id_pid.ki_);
     iq_pid.output_limit_=3.0f;  //安全起见
     id_pid.output_limit_=3.0f;
     iq_pid.inter_limit_=50.0f;
     id_pid.inter_limit_=50.0f;
     iq_pid.reset();
     id_pid.reset();
+    iq_pid.set_dt(40e-6f);
+    id_pid.set_dt(40e-6f);
 }
 
 void FOC::load_config() {
@@ -22,10 +20,16 @@ void FOC::load_config() {
     float mechanical_offset = 0.0f;
     flash.read_value("foc/n", pole_pairs);
     flash.read_value("foc/offset", mechanical_offset);
+    float kp = iq_pid.kp_;
+    float ki = iq_pid.ki_;
+    flash.read_value("foc/pid/kp", kp);
+    flash.read_value("foc/pid/ki", ki);
     const uint32_t interrupt_mask = __get_PRIMASK();
     __disable_irq();
     n              = pole_pairs;
     offset         = mechanical_offset;
+    iq_pid.kp_ = id_pid.kp_ = kp;
+    iq_pid.ki_ = id_pid.ki_ = ki;
     config_loaded_ = true;
     __set_PRIMASK(interrupt_mask);
 }
@@ -33,9 +37,12 @@ void FOC::load_config() {
 void FOC::reset() {
     iq_pid.reset();
     id_pid.reset();
+    iq_pid.set_dt(40e-6f);
+    id_pid.set_dt(40e-6f);
     cur_iq_ = 0.0f;
     c1 = c2 = c3 = vbus = rad =  0.0f;
     first_run = true;
+    last_update_us_ = 0U;
 }
 
 void FOC::set_measure(
@@ -71,6 +78,17 @@ bool FOC::get_output(float& v1, float& v2, float& v3) {
 
     //记录
     cur_iq_=iq;
+
+    const uint64_t now_us = BSP::get_time_us();
+    if (last_update_us_ != 0U && now_us > last_update_us_) {
+        const uint64_t elapsed_us = now_us - last_update_us_;
+        if (elapsed_us <= 200U) {
+            const float dt = static_cast<float>(elapsed_us) * 1e-6f;
+            iq_pid.set_dt(dt);
+            id_pid.set_dt(dt);
+        }
+    }
+    last_update_us_ = now_us;
 
     float vq=iq_pid.update(iq,exp_iq_);
     float vd=id_pid.update(id,0.0f);

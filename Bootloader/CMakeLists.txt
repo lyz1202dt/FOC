@@ -15,7 +15,9 @@ target_sources(bootloader PRIVATE
     ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_pwr_ex.c
     ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_dma.c
     ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_uart.c
-    ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_uart_ex.c)
+    ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_uart_ex.c
+    ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_flash.c
+    ${BOOT_HAL_DIR}/Src/stm32g4xx_hal_flash_ex.c)
 
 target_include_directories(bootloader PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -25,6 +27,7 @@ target_include_directories(bootloader PRIVATE
     ${PROJECT_SOURCE_DIR}/Drivers/CMSIS/Include)
 target_compile_definitions(bootloader PRIVATE
     USE_HAL_DRIVER STM32G431xx USER_VECT_TAB_ADDRESS VECT_TAB_OFFSET=0
-    BOOT_APP_ADDRESS=${APP_FLASH_ORIGIN})
+    BOOT_APP_ADDRESS=${APP_FLASH_ORIGIN}
+    BOOT_APP_LENGTH=${APP_FLASH_LENGTH})
 configure_firmware(bootloader "${CMAKE_CURRENT_SOURCE_DIR}/STM32G431XX_FLASH.ld"
     ${BOOT_FLASH_ORIGIN} ${BOOT_FLASH_LENGTH})

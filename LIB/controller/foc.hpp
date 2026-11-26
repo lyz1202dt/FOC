@@ -2,6 +2,7 @@
 
 #include "controller.hpp"
 #include "pid.hpp"
+#include <cstdint>
 
 class FOC : public Controller {
 public:
@@ -26,4 +27,5 @@ private:
     float c1,c2,c3,vbus,rad{0.0};
     bool first_run{true};
     bool config_loaded_{false};
+    uint64_t last_update_us_{0U};
 };

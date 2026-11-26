@@ -52,6 +52,7 @@ public:
         TEST,
         FOC,
         INIT,
+        MOTOR_MEASURE,
         MEASURE,
         ERROR,
         MIT

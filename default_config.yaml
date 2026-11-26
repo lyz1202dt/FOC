@@ -8,6 +8,7 @@ config:
     n: ["int32",-7]
     offset: ["float32",0.0]
     pid:
+      kp: ["float32",0.0]
       ki: ["float32",0.1]
       kd: ["float32",50.0]
       limit: ["float32",100.0]
@@ -17,6 +18,7 @@ config:
     kd: ["float32",3.0]
   setup:
     auto: ["int32",1]
+    motor_calib: ["int32",0]
     encoder_calib: ["int32",1]
   comm:
     auto_send_freq: ["int32",1000]   #每秒主动发送1000次机器人状态

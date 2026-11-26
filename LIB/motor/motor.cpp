@@ -7,6 +7,7 @@
 #include "foc.hpp"
 #include "idel.hpp"
 #include "mit.hpp"
+#include "motor_calib.hpp"
 #include "pack.h"
 #include "portmacro.h"
 #include "projdefs.h"
@@ -34,9 +35,10 @@ bool Motor::enable(bool enable) {
             success = driver_->enable_pwm(false) && !enable;
         }
     }
-    if (!enable && controller_ != nullptr && controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]) {
-        // 中断校准输出后，必须重新持续对齐完整的两秒。
-        controller_->set_measure(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    if (!enable && controller_ != nullptr &&
+        (controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] ||
+         controller_ == controllers_[ControllerType::CONTROLLER_MOTOR_CALIB])) {
+        controller_->reset();
     }
     __set_PRIMASK(interrupt_mask);
     return success;
@@ -102,7 +104,7 @@ bool Motor::init() {
     controllers_[ControllerType::CONTROLLER_MIT]           =
         new class MIT(flash_, static_cast<class FOC*>(controllers_[ControllerType::CONTROLLER_FOC]));
     controllers_[ControllerType::CONTROLLER_TEST]          = new class VOC(flash_);
-    controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = nullptr;
+    controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]   = new MotorCalib(flash_);
     controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] = new EncoderCalib(flash_);
     // INIT 先保持 IDEL 且关闭输出，由慢循环请求校准或目标控制器。
     controller_ = next_controller_ = controllers_[ControllerType::CONTROLLER_IDEL];
@@ -226,7 +228,8 @@ bool Motor::fast_loop() {
     float estimatered_omega = 0.0f;
     bool success            = estimater_->update();
     success                 = estimater_->get_value(estimatered_rad, estimatered_omega) && success;
-    if (!sensorless_mode_) {  // 无感模式下估计器错误，直接崩溃。否则不用管，开环控制器自动切换
+    const bool calibrating_motor = controller_ == controllers_[ControllerType::CONTROLLER_MOTOR_CALIB];
+    if (!sensorless_mode_ && !calibrating_motor) {  // 电机参数校准不依赖编码器角度。
         if (!success) {
             stop_output();
             return false;
@@ -243,7 +246,7 @@ bool Motor::fast_loop() {
     const bool calibrating_encoder = controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
     controller_->set_measure(
         current[0], current[1], current[2], dcbus_vol, calibrating_encoder ? encoder_rad : estimatered_rad,
-        calibrating_encoder ? encoder_available : success);
+        calibrating_encoder ? encoder_available : (calibrating_motor || success));
     if (!controller_->get_output(voltage[0], voltage[1], voltage[2])) {
         stop_output();
         return false;
@@ -260,8 +263,9 @@ bool Motor::fast_loop() {
 }
 
 void Motor::stop_output() {
-    if (controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]) {
-        controller_->set_measure(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false);
+    if (controller_ == controllers_[ControllerType::CONTROLLER_ENCODER_CALIB] ||
+        controller_ == controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]) {
+        controller_->reset();
     }
     driver_->set_phrase_voltage(0.0f, 0.0f, 0.0f);
     last_voltage_[0] = 0.0f;
@@ -416,26 +420,74 @@ bool Motor::slow_loop() {
     __set_PRIMASK(interrupt_mask);
 
     if (current_state == State::INIT) {
-        int32_t calibrate = 1;
-        flash_.read_value("setup/encoder_calib", calibrate);
-        if (calibrate) {
+        int32_t motor_calibrate = 0;
+        flash_.read_value("setup/motor_calib", motor_calibrate);
+        if (motor_calibrate) {
             __disable_irq();
-            enable(true);
-            next_controller_ = controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
-            next_state       = State::MEASURE;
+            if (enable(true)) {
+                next_controller_ = controllers_[ControllerType::CONTROLLER_MOTOR_CALIB];
+                next_state = State::MOTOR_MEASURE;
+            } else {
+                core_error_ = 0x22;
+                next_state = State::ERROR;
+            }
             __set_PRIMASK(interrupt_mask);
         } else {
-            // 跳过校准，直接按启动配置选择目标状态。
-            int32_t auto_start = 0;
-            flash_.read_value("setup/auto", auto_start);
-            if (auto_start) {
-                static_cast<class VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+            int32_t calibrate = 1;
+            flash_.read_value("setup/encoder_calib", calibrate);
+            if (calibrate) {
+                __disable_irq();
+                enable(true);
+                next_controller_ = controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
+                next_state       = State::MEASURE;
+                __set_PRIMASK(interrupt_mask);
+            } else {
+                // 跳过校准，直接按启动配置选择目标状态。
+                int32_t auto_start = 0;
+                flash_.read_value("setup/auto", auto_start);
+                if (auto_start) {
+                    static_cast<class VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+                }
+                __disable_irq();
+                next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+                next_state       = auto_start ? State::TEST : State::IDEL;
+                enable(auto_start != 0);
+                __set_PRIMASK(interrupt_mask);
             }
-            __disable_irq();
-            next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
-            next_state       = auto_start ? State::TEST : State::IDEL;
-            enable(auto_start != 0);
-            __set_PRIMASK(interrupt_mask);
+        }
+    } else if (current_state == State::MOTOR_MEASURE) {
+        MotorCalib::Result result{};
+        auto* calib = static_cast<MotorCalib*>(controllers_[ControllerType::CONTROLLER_MOTOR_CALIB]);
+        if (calib->get_result(result)) {
+            enable(false);
+            if (!result.success || !flash_.write_value("foc/phase_resistance", result.resistance) ||
+                !flash_.write_value("foc/phase_inductance", result.inductance) ||
+                !flash_.write_value("foc/pid/kp", result.kp) ||
+                !flash_.write_value("foc/pid/ki", result.ki)) {
+                core_error_ = 0x22;
+                next_state = State::ERROR;
+            } else {
+                int32_t encoder_calibrate = 1;
+                flash_.read_value("setup/encoder_calib", encoder_calibrate);
+                if (encoder_calibrate) {
+                    __disable_irq();
+                    next_controller_ = controllers_[ControllerType::CONTROLLER_ENCODER_CALIB];
+                    next_state = State::MEASURE;
+                    enable(true);
+                    __set_PRIMASK(interrupt_mask);
+                } else {
+                    int32_t auto_start = 0;
+                    flash_.read_value("setup/auto", auto_start);
+                    if (auto_start) {
+                        static_cast<VOC*>(controllers_[ControllerType::CONTROLLER_TEST])->load_config();
+                    }
+                    __disable_irq();
+                    next_controller_ = controllers_[auto_start ? ControllerType::CONTROLLER_TEST : ControllerType::CONTROLLER_IDEL];
+                    next_state = auto_start ? State::TEST : State::IDEL;
+                    enable(auto_start != 0);
+                    __set_PRIMASK(interrupt_mask);
+                }
+            }
         }
     } else if (current_state == State::MEASURE) {
         auto* calib  = static_cast<EncoderCalib*>(controllers_[ControllerType::CONTROLLER_ENCODER_CALIB]);

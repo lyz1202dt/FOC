@@ -8,6 +8,7 @@ public:
     float update_d(float measure, float target);                // 微分先行PID，对measure做差分
     float update(float measure, float d_measure, float target); // 微分先行
     float reset();
+    void set_dt(float dt) { dt_ = dt; }
 
     float kp_, kd_, ki_;
     float inter_limit_, output_limit_;
